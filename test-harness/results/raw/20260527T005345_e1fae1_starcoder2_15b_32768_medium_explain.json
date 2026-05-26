@@ -1,0 +1,178 @@
+{
+  "run_id": "20260527T005345_e1fae1",
+  "timestamp": "2026-05-27T00:53:45",
+  "config": {
+    "model": "starcoder2:15b",
+    "context": 32768,
+    "prompt_name": "medium-explain",
+    "prompt_chars": 805,
+    "ollama_options": {
+      "num_ctx": 32768,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 87311700,
+    "load_duration": 20262500,
+    "prompt_eval_duration": 64475100,
+    "eval_duration": null
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 234,
+    "eval_count": 1
+  },
+  "derived": {
+    "gen_tokens_per_sec": null,
+    "prompt_tokens_per_sec": 3629.308058459778,
+    "wall_clock_sec": 2.1305441999575123,
+    "total_duration_sec": 0.0873117,
+    "load_duration_sec": 0.0202625,
+    "prompt_eval_duration_sec": 0.0644751,
+    "eval_duration_sec": null
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779807223.5343301,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807223.826322,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807224.1345837,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807224.427325,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807224.7215168,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807225.478872,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      }
+    ],
+    "summary": {
+      "samples": 6,
+      "util_gpu_pct_avg": 1.0,
+      "util_gpu_pct_max": 1.0,
+      "vram_used_mb_avg": 12530.0,
+      "vram_used_mb_max": 12530.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 36.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779807223.4926586,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56373.7421875
+      },
+      {
+        "ts": 1779807223.7563636,
+        "cpu_pct": 33.1,
+        "ram_used_mb": 56380.3671875
+      },
+      {
+        "ts": 1779807224.0189006,
+        "cpu_pct": 16.2,
+        "ram_used_mb": 56376.19921875
+      },
+      {
+        "ts": 1779807224.2810295,
+        "cpu_pct": 14.4,
+        "ram_used_mb": 56372.83203125
+      },
+      {
+        "ts": 1779807224.5434923,
+        "cpu_pct": 12.5,
+        "ram_used_mb": 56375.86328125
+      },
+      {
+        "ts": 1779807224.804156,
+        "cpu_pct": 17.3,
+        "ram_used_mb": 56501.4375
+      },
+      {
+        "ts": 1779807225.0656495,
+        "cpu_pct": 17.8,
+        "ram_used_mb": 56376.91796875
+      },
+      {
+        "ts": 1779807225.3297715,
+        "cpu_pct": 10.1,
+        "ram_used_mb": 56374.24609375
+      },
+      {
+        "ts": 1779807225.5800936,
+        "cpu_pct": 13.2,
+        "ram_used_mb": 56373.67578125
+      }
+    ],
+    "summary": {
+      "samples": 9,
+      "cpu_pct_avg": 14.955555555555556,
+      "cpu_pct_max": 33.1,
+      "ram_used_mb_max": 56501.4375,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779807223.670246,
+        "raw": "starcoder2:15b    21ae152d49e0    10 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "10 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779807224.8560238,
+        "raw": "starcoder2:15b    21ae152d49e0    10 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "10 GB",
+        "context": 16384
+      }
+    ],
+    "summary": {
+      "samples": 2,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 0,
+    "text": "",
+    "expected_contains": null,
+    "expected_pass": null
+  }
+}

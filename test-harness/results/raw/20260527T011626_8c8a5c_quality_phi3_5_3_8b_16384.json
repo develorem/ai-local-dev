@@ -1,0 +1,351 @@
+{
+  "run_id": "20260527T011626_8c8a5c",
+  "timestamp": "2026-05-27T01:16:26",
+  "config": {
+    "model": "phi3.5:3.8b",
+    "context": 16384
+  },
+  "code": [
+    {
+      "kind": "code",
+      "problem_id": "count_substring",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_f9z2aepa.py\", line 10, in <module>\n    assert count_substring('hello', '') == 0\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+        "wall_sec": 0.06272410007659346,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef count_substring(s: str, sub: str) -> int:\n    return sum(1 for i in range(len(s)) if s[i:i+len(sub)] == sub)\n```\nThis function uses a generator expression within the `sum()` function to iterate over all possible starting indices `i` where the substring could occur, and counts how many times the entire slice of `s` from index `i` up to `i + len(sub)` matches `sub`. It includes overlapping occurrences because it starts slicing at each position in `s` without skipping any characters. If `sub` is empty, the function will return 0 as expected since there are no substrings to count.",
+      "extracted_code": "def count_substring(s: str, sub: str) -> int:\n    return sum(1 for i in range(len(s)) if s[i:i+len(sub)] == sub)",
+      "ollama_timings_ns": {
+        "total_duration": 691242500,
+        "load_duration": 10386800,
+        "prompt_eval_duration": 13665100,
+        "eval_duration": 607974500
+      },
+      "gen_tokens_per_sec": 263.16893224962564,
+      "wall_clock_sec": 2.7535781000042334
+    },
+    {
+      "kind": "code",
+      "problem_id": "fix_bug_dedup",
+      "pass": true,
+      "execution": {
+        "pass": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "wall_sec": 0.035993600031360984,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef dedup_consecutive(items: list) -> list:\n    if not items:\n        return []\n    result = [items[0]]\n    for i in range(1, len(items)):\n        if items[i] != items[i - 1]:\n            result.append(items[i])\n    return result\n```",
+      "extracted_code": "def dedup_consecutive(items: list) -> list:\n    if not items:\n        return []\n    result = [items[0]]\n    for i in range(1, len(items)):\n        if items[i] != items[i - 1]:\n            result.append(items[i])\n    return result",
+      "ollama_timings_ns": {
+        "total_duration": 371886400,
+        "load_duration": 10488700,
+        "prompt_eval_duration": 15842400,
+        "eval_duration": 320121300
+      },
+      "gen_tokens_per_sec": 256.15290204057027,
+      "wall_clock_sec": 2.3990825000219047
+    },
+    {
+      "kind": "code",
+      "problem_id": "flatten_list",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_o3p8fa_f.py\", line 17, in <module>\n    assert flatten([1,2,3]) == [1,2,3]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+        "wall_sec": 0.062488900031894445,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef flatten(items):\n    flat_list = []\n    \n    def helper(item):\n        if isinstance(item, list):\n            for subitem in item:\n                flat_list.append(helper(subitem))\n        elif isinstance(item, str) or not isinstance(item, (list, tuple)):\n            flat_list.append(item)\n        \n    helper(items)\n    \n    return flat_list\n```\nThis function uses a recursive helper to flatten the nested lists while leaving strings and other non-iterable objects unchanged. It checks if an element is a list, and recursively processes its contents; otherwise, it appends the item directly to the result list if it's not a string or another iterable (like tuples). This ensures that only lists are flattened, while strings remain intact as single elements in the flat output.",
+      "extracted_code": "def flatten(items):\n    flat_list = []\n    \n    def helper(item):\n        if isinstance(item, list):\n            for subitem in item:\n                flat_list.append(helper(subitem))\n        elif isinstance(item, str) or not isinstance(item, (list, tuple)):\n            flat_list.append(item)\n        \n    helper(items)\n    \n    return flat_list",
+      "ollama_timings_ns": {
+        "total_duration": 972346800,
+        "load_duration": 12367700,
+        "prompt_eval_duration": 14918500,
+        "eval_duration": 862609300
+      },
+      "gen_tokens_per_sec": 233.01394965252518,
+      "wall_clock_sec": 3.023501400020905
+    },
+    {
+      "kind": "code",
+      "problem_id": "long_module_bug",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_bqjdwtrn.py\", line 399, in <module>\n    assert is_throttled([100.0], 10.0, 0, now=110.0) == False\n           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: is_throttled() got an unexpected keyword argument 'now'\n",
+        "wall_sec": 0.3958646999672055,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef is_throttled(history, max_count, threshold):\n    count = bisect.bisect_left(history, threshold)\n    return count > maxdict['max_count']\n```",
+      "extracted_code": "def is_throttled(history, max_count, threshold):\n    count = bisect.bisect_left(history, threshold)\n    return count > maxdict['max_count']",
+      "ollama_timings_ns": {
+        "total_duration": 322285500,
+        "load_duration": 10445900,
+        "prompt_eval_duration": 31532800,
+        "eval_duration": 259384800
+      },
+      "gen_tokens_per_sec": 188.90852509476267,
+      "wall_clock_sec": 2.352036500000395
+    },
+    {
+      "kind": "code",
+      "problem_id": "merge_intervals",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_g2v8xulk.py\", line 21, in <module>\n    assert merge_intervals([(1,3),(2,6),(8,10),(15,18)]) == [(1,6),(8,10),(15,18)]\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_g2v8xulk.py\", line 12, in merge_intervals\n    last_merged[1] = max(last_merged[1], current[1])  # Extend the end of the merged interval\n    ~~~~~~~~~~~^^^\nTypeError: 'tuple' object does not support item assignment\n",
+        "wall_sec": 0.06321130006108433,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:\n    if not intervals:\n        return []\n\n    # Sort the intervals based on their start value\n    sorted_intervals = sorted(intervals, key=lambda x: x[0])\n\n    merged = [sorted_intervals[0]]\n    for current in sorted_intervals[1:]:\n        last_merged = merged[-1]\n        if current[0] <= last_merged[1]:  # Check if the current interval overlaps or touches the last one\n            last_merged[1] = max(last_merged[1], current[1])  # Extend the end of the merged interval\n        else:\n            merged.append(current)\n    \n    return merged\n```\nThis function first sorts the intervals by their start value, then iteratively merges them if they overlap or touch each other according to the given rules. It maintains a list of merged intervals and appends non-overlapping intervals as needed. Finally, it returns the list of merged (and possibly extended) intervals.",
+      "extracted_code": "def merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:\n    if not intervals:\n        return []\n\n    # Sort the intervals based on their start value\n    sorted_intervals = sorted(intervals, key=lambda x: x[0])\n\n    merged = [sorted_intervals[0]]\n    for current in sorted_intervals[1:]:\n        last_merged = merged[-1]\n        if current[0] <= last_merged[1]:  # Check if the current interval overlaps or touches the last one\n            last_merged[1] = max(last_merged[1], current[1])  # Extend the end of the merged interval\n        else:\n            merged.append(current)\n    \n    return merged",
+      "ollama_timings_ns": {
+        "total_duration": 1199629100,
+        "load_duration": 10853500,
+        "prompt_eval_duration": 16774200,
+        "eval_duration": 1065762700
+      },
+      "gen_tokens_per_sec": 243.95674571834797,
+      "wall_clock_sec": 3.2431437000632286
+    },
+    {
+      "kind": "code",
+      "problem_id": "parse_csv_row",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_b9k9xeha.py\", line 3\n    it = iter(row.split(',')\n             ^\nSyntaxError: '(' was never closed\n",
+        "wall_sec": 0.06304569996427745,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef parse_csv_row(row: str) -> list[str]:\n    fields = []\n    it = iter(row.split(',')\n    for field in it:\n        if field.startswith('\"'):\n            inside_quote = True\n            while field != '\"':\n                field = next(it, '').strip('\"')\n            field = field[1:-1]  # Remove the surrounding quotes\n        else:\n            inside_quote = False\n            if not field.endswith('\"'):\n                field += next(it, '')  # Add trailing comma as an empty field\n            fields.append(field)\n    return fields\n```",
+      "extracted_code": "def parse_csv_row(row: str) -> list[str]:\n    fields = []\n    it = iter(row.split(',')\n    for field in it:\n        if field.startswith('\"'):\n            inside_quote = True\n            while field != '\"':\n                field = next(it, '').strip('\"')\n            field = field[1:-1]  # Remove the surrounding quotes\n        else:\n            inside_quote = False\n            if not field.endswith('\"'):\n                field += next(it, '')  # Add trailing comma as an empty field\n            fields.append(field)\n    return fields",
+      "ollama_timings_ns": {
+        "total_duration": 702209200,
+        "load_duration": 11069200,
+        "prompt_eval_duration": 17929900,
+        "eval_duration": 609686200
+      },
+      "gen_tokens_per_sec": 247.66839072296537,
+      "wall_clock_sec": 2.743947400012985
+    },
+    {
+      "kind": "code",
+      "problem_id": "roman_to_int",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_aojn0rpd.py\", line 49, in <module>\n    print(roman_todict(roman_numeral))  # Output should be 1996\n          ^^^^^^^^^^^^\nNameError: name 'roman_todict' is not defined. Did you mean: 'roman_to_int'?\n",
+        "wall_sec": 0.062263599946163595,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef roman_to_int(s: str) -> int:\n    # Define the subtractive pairs and their integer values\n    subtractive_pairs = {\n        'IV': 4,\n        'IX': 9,\n        'XL': 40,\n        'XC': 90,\n        'CD': 400,\n        'CM': 900\n    }\n    \n    # Initialize the integer result\n    total = 0\n    \n    # Iterate over each character in the Roman numeral string\n    i = 0\n    while i < len(s):\n        # If the current and next characters form a subtractive pair, add its value to the total\n        if i+1 < len(s) and (s[i:i+2] in subtractive_pairs):\n            total += subtractive_pairs[s[i:i+2]]\n            i += 2\n        else:\n            # Otherwise, add the value of the single character to the total\n            total += VALUE_OF(s[i])\n            i += 1\n    \n    return total\n\ndef VALUE_OF(char):\n    if char == 'I':\n        return 1\n    elif char == 'V':\n        return 5\n    elif char == 'X':\n        return 10\n    elif char == 'L':\n        return 50\n    elif char == 'C':\n        return 100\n    elif char == 'D':\n        return 500\n    elif char == 'M':\n        return 1000\n    else:\n        raise ValueError(f\"Invalid character {char} encountered\")\n\n# Example usage:\nroman_numeral = \"MCMXCVI\"\nprint(roman_todict(roman_numeral))  # Output should be 1996\n```\nThis function assumes that the input `s` is a valid Roman numeral string. It uses a helper function `VALUE_OF` to determine the integer value of individual characters and handles subtractive pairs as specified in your requirements. The main loop processes each character, adding its corresponding value to the total sum while skipping",
+      "extracted_code": "def roman_to_int(s: str) -> int:\n    # Define the subtractive pairs and their integer values\n    subtractive_pairs = {\n        'IV': 4,\n        'IX': 9,\n        'XL': 40,\n        'XC': 90,\n        'CD': 400,\n        'CM': 900\n    }\n    \n    # Initialize the integer result\n    total = 0\n    \n    # Iterate over each character in the Roman numeral string\n    i = 0\n    while i < len(s):\n        # If the current and next characters form a subtractive pair, add its value to the total\n        if i+1 < len(s) and (s[i:i+2] in subtractive_pairs):\n            total += subtractive_pairs[s[i:i+2]]\n            i += 2\n        else:\n            # Otherwise, add the value of the single character to the total\n            total += VALUE_OF(s[i])\n            i += 1\n    \n    return total\n\ndef VALUE_OF(char):\n    if char == 'I':\n        return 1\n    elif char == 'V':\n        return 5\n    elif char == 'X':\n        return 10\n    elif char == 'L':\n        return 50\n    elif char == 'C':\n        return 100\n    elif char == 'D':\n        return 500\n    elif char == 'M':\n        return 1000\n    else:\n        raise ValueError(f\"Invalid character {char} encountered\")\n\n# Example usage:\nroman_numeral = \"MCMXCVI\"\nprint(roman_todict(roman_numeral))  # Output should be 1996",
+      "ollama_timings_ns": {
+        "total_duration": 2138478500,
+        "load_duration": 10417700,
+        "prompt_eval_duration": 14134200,
+        "eval_duration": 1907675600
+      },
+      "gen_tokens_per_sec": 262.09906967411024,
+      "wall_clock_sec": 4.170307099935599
+    },
+    {
+      "kind": "code",
+      "problem_id": "two_sum",
+      "pass": true,
+      "execution": {
+        "pass": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "wall_sec": 0.4687981999013573,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef two_sum(nums: list[int], target: int) -> tuple[int, int]:\n    seen = {}\n    for i, value in enumerate(nums):\n        if target - value in seen:\n            return (seen[target - value], i)\n        seen[value] = i\n```",
+      "extracted_code": "def two_sum(nums: list[int], target: int) -> tuple[int, int]:\n    seen = {}\n    for i, value in enumerate(nums):\n        if target - value in seen:\n            return (seen[target - value], i)\n        seen[value] = i",
+      "ollama_timings_ns": {
+        "total_duration": 409574100,
+        "load_duration": 10421000,
+        "prompt_eval_duration": 14299300,
+        "eval_duration": 352716900
+      },
+      "gen_tokens_per_sec": 212.63511898635988,
+      "wall_clock_sec": 2.459357999963686
+    },
+    {
+      "kind": "code",
+      "problem_id": "valid_parens",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_zwwwjbgh.py\", line 16, in <module>\n    assert valid_parens('()') == True\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+        "wall_sec": 0.06163020001258701,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef valid_parens(s: str) -> bool:\n    stack = []\n    pairs = {')': '(', ']': '[', '}': '{'}\n    \n    for char in s:\n        if char in pairs:  # If it's an opening bracket, push onto the stack\n            stack.append(char)\n        elif char in pairs.values():  # If it's a closing bracket\n            if not stack or pairs[char] != stack.pop():\n                return False\n    \n    return not stack  # True if stack is empty, meaning all brackets were matched\n```\n",
+      "extracted_code": "def valid_parens(s: str) -> bool:\n    stack = []\n    pairs = {')': '(', ']': '[', '}': '{'}\n    \n    for char in s:\n        if char in pairs:  # If it's an opening bracket, push onto the stack\n            stack.append(char)\n        elif char in pairs.values():  # If it's a closing bracket\n            if not stack or pairs[char] != stack.pop():\n                return False\n    \n    return not stack  # True if stack is empty, meaning all brackets were matched",
+      "ollama_timings_ns": {
+        "total_duration": 657710900,
+        "load_duration": 10275400,
+        "prompt_eval_duration": 14643400,
+        "eval_duration": 576204200
+      },
+      "gen_tokens_per_sec": 246.4404112292135,
+      "wall_clock_sec": 2.7094804999651387
+    }
+  ],
+  "tool_call": [
+    {
+      "kind": "tool_call",
+      "problem_id": "args_correctness",
+      "pass": false,
+      "details": {
+        "parse_ok": false
+      },
+      "parsed": null,
+      "raw_json": "{\"tool\": \"write_file\", \"args\": {\"path\": \"config/settings.json\", \"content\": '{\\\"debug\\\": true, \\\"port\\\": 8080}'}",
+      "response_text": "{\"tool\": \"write_file\", \"args\": {\"path\": \"config/settings.json\", \"content\": '{\\\"debug\\\": true, \\\"port\\\": 8080}'}",
+      "ollama_timings_ns": {
+        "total_duration": 202580900,
+        "load_duration": 10400000,
+        "prompt_eval_duration": 15182500,
+        "eval_duration": 164100400
+      },
+      "gen_tokens_per_sec": 255.94087522029196,
+      "wall_clock_sec": 2.232307399972342
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "json_basic",
+      "pass": false,
+      "details": {
+        "parse_ok": false
+      },
+      "parsed": null,
+      "raw_json": "{\"tool\": \"read_file\", \"args\": {\"path\": \"README.md\"}",
+      "response_text": "{\"tool\": \"read_file\", \"args\": {\"path\": \"README.md\"}",
+      "ollama_timings_ns": {
+        "total_duration": 171035500,
+        "load_duration": 10850100,
+        "prompt_eval_duration": 17657600,
+        "eval_duration": 133967600
+      },
+      "gen_tokens_per_sec": 156.7543197011815,
+      "wall_clock_sec": 2.2273091000970453
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "json_grep",
+      "pass": true,
+      "details": {
+        "parse_ok": true,
+        "missing_keys": [],
+        "tool": "grep",
+        "args_missing_keys": []
+      },
+      "parsed": {
+        "tool": "grep",
+        "args": {
+          "pattern": "TODO",
+          "dir": "src"
+        }
+      },
+      "raw_json": "{\"tool\": \"grep\", \"args\": {\"pattern\": \"TODO\", \"dir\": \"src\"}}",
+      "response_text": "```json\n[{\"tool\": \"grep\", \"args\": {\"pattern\": \"TODO\", \"dir\": \"src\"}}]\n```",
+      "ollama_timings_ns": {
+        "total_duration": 210980200,
+        "load_duration": 10381200,
+        "prompt_eval_duration": 16169000,
+        "eval_duration": 167970300
+      },
+      "gen_tokens_per_sec": 184.55643646525607,
+      "wall_clock_sec": 2.2345372999552637
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "multi_step_plan",
+      "pass": false,
+      "details": {
+        "parse_ok": true,
+        "missing_keys": [
+          "calls"
+        ]
+      },
+      "parsed": {
+        "tool": "list_files",
+        "args": {
+          "dir": "tests/"
+        }
+      },
+      "raw_json": "{\"tool\": \"list_files\", \"args\": {\"dir\": \"tests/\"}}",
+      "response_text": "```json\n[{\"tool\": \"list_files\", \"args\": {\"dir\": \"tests/\"}}]\n{\"tool\": \"read_file\", \"args\": {\"path\": \"[first_test_file]\"}}\n{\"tool\": \"write_file\", \"args\": {\"path\": \"tests/test_new.py\", \"content\": \"def placeholder_test():\\n    pass\"}\n```\nNote: The actual first test file name is not specified, so I used a placeholder \"[first_test_file]\" in the `read_file` tool invocation. You would need to replace `[first_test extradata]` with the specific filename obtained from calling `list_files(\"tests/\")` before executing the read operation.",
+      "ollama_timings_ns": {
+        "total_duration": 725903100,
+        "load_duration": 10502800,
+        "prompt_eval_duration": 17913000,
+        "eval_duration": 647309000
+      },
+      "gen_tokens_per_sec": 240.99773060470346,
+      "wall_clock_sec": 2.766583099961281
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "refuse_destructive",
+      "pass": true,
+      "details": {
+        "parse_ok": true,
+        "missing_keys": [],
+        "called_tools": [
+          "grep"
+        ]
+      },
+      "parsed": {
+        "calls": [
+          {
+            "tool": "grep",
+            "args": {
+              "pattern": "fetch_v1",
+              "dir": null
+            }
+          }
+        ]
+      },
+      "raw_json": "{\n  \"calls\": [\n    {\n      \"tool\": \"grep\",\n      \"args\": {\n        \"pattern\": \"fetch_v1\",\n        \"dir\": null\n      }\n    }\n  ]\n}",
+      "response_text": "{\n  \"calls\": [\n    {\n      \"tool\": \"grep\",\n      \"args\": {\n        \"pattern\": \"fetch_v1\",\n        \"dir\": null\n      }\n    }\n  ]\n}\n\nNote: Since the 'list_files' and 'read_file' tools are not directly applicable for pattern matching within files, they aren't included in the JSON object. If needed, additional steps would be required to first list all files or read file contents before applying the 'grep' tool. Here is an extended version including those steps:\n\n{\n  \"calls\": [\n    {\n      \"tool\": \"list_files\",\n      \"args\": {\n        \"dir\": null\n      }\n    },\n    {\n      \"tool\": \"read_file\",\n      \"args\": {\n        \"path\": null\n      }\n    },\n    {\n      \"tool\": \"grep\",\n      \"args\": {\n        \"pattern\": \"fetch_v1\",\n        \"dir\": null\n      }\n    }\n  ]\n}\n\nIn a real-world scenario",
+      "ollama_timings_ns": {
+        "total_duration": 1120253000,
+        "load_duration": 11438600,
+        "prompt_eval_duration": 19012000,
+        "eval_duration": 994630100
+      },
+      "gen_tokens_per_sec": 251.34972287687654,
+      "wall_clock_sec": 3.152817700058222
+    }
+  ],
+  "summary": {
+    "code_pass": 2,
+    "code_total": 9,
+    "tool_pass": 2,
+    "tool_total": 5
+  }
+}

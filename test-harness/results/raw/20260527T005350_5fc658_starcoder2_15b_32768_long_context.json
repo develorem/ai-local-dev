@@ -1,0 +1,205 @@
+{
+  "run_id": "20260527T005350_5fc658",
+  "timestamp": "2026-05-27T00:53:50",
+  "config": {
+    "model": "starcoder2:15b",
+    "context": 32768,
+    "prompt_name": "long-context",
+    "prompt_chars": 6882,
+    "ollama_options": {
+      "num_ctx": 32768,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 501183600,
+    "load_duration": 19588400,
+    "prompt_eval_duration": 472842400,
+    "eval_duration": null
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 1874,
+    "eval_count": 1
+  },
+  "derived": {
+    "gen_tokens_per_sec": null,
+    "prompt_tokens_per_sec": 3963.265561633221,
+    "wall_clock_sec": 2.549396999995224,
+    "total_duration_sec": 0.5011836,
+    "load_duration_sec": 0.0195884,
+    "prompt_eval_duration_sec": 0.4728424,
+    "eval_duration_sec": null
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779807227.757068,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12518.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807228.049521,
+        "util_gpu_pct": 19.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779807228.3583958,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807228.9156942,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807229.2121696,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807229.5065286,
+        "util_gpu_pct": 2.0,
+        "vram_used_mb": 12530.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807229.8021386,
+        "util_gpu_pct": 2.0,
+        "vram_used_mb": 12526.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      },
+      {
+        "ts": 1779807230.1136475,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12518.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 36.0
+      }
+    ],
+    "summary": {
+      "samples": 8,
+      "util_gpu_pct_avg": 3.5,
+      "util_gpu_pct_max": 19.0,
+      "vram_used_mb_avg": 12526.5,
+      "vram_used_mb_max": 12530.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 37.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779807227.7023854,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56395.19140625
+      },
+      {
+        "ts": 1779807227.9642086,
+        "cpu_pct": 21.2,
+        "ram_used_mb": 56392.99609375
+      },
+      {
+        "ts": 1779807228.2269256,
+        "cpu_pct": 17.5,
+        "ram_used_mb": 56388.4765625
+      },
+      {
+        "ts": 1779807228.4893293,
+        "cpu_pct": 12.9,
+        "ram_used_mb": 56388.1796875
+      },
+      {
+        "ts": 1779807228.7535627,
+        "cpu_pct": 12.0,
+        "ram_used_mb": 56400.64453125
+      },
+      {
+        "ts": 1779807229.0160255,
+        "cpu_pct": 14.9,
+        "ram_used_mb": 56532.01953125
+      },
+      {
+        "ts": 1779807229.2809048,
+        "cpu_pct": 16.0,
+        "ram_used_mb": 56398.203125
+      },
+      {
+        "ts": 1779807229.5453198,
+        "cpu_pct": 13.5,
+        "ram_used_mb": 56398.953125
+      },
+      {
+        "ts": 1779807229.80934,
+        "cpu_pct": 20.0,
+        "ram_used_mb": 56413.19140625
+      },
+      {
+        "ts": 1779807230.0728626,
+        "cpu_pct": 18.2,
+        "ram_used_mb": 56410.72265625
+      }
+    ],
+    "summary": {
+      "samples": 10,
+      "cpu_pct_avg": 14.62,
+      "cpu_pct_max": 21.2,
+      "ram_used_mb_max": 56532.01953125,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779807227.8904266,
+        "raw": "starcoder2:15b    21ae152d49e0    10 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "10 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779807229.0606382,
+        "raw": "starcoder2:15b    21ae152d49e0    10 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "10 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779807230.3043249,
+        "raw": "starcoder2:15b    21ae152d49e0    10 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "10 GB",
+        "context": 16384
+      }
+    ],
+    "summary": {
+      "samples": 3,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 0,
+    "text": "",
+    "expected_contains": null,
+    "expected_pass": null
+  }
+}

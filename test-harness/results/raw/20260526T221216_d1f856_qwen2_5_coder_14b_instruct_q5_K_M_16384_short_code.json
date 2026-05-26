@@ -1,0 +1,620 @@
+{
+  "run_id": "20260526T221216_d1f856",
+  "timestamp": "2026-05-26T22:12:16",
+  "config": {
+    "model": "qwen2.5-coder:14b-instruct-q5_K_M",
+    "context": 16384,
+    "prompt_name": "short-code",
+    "prompt_chars": 495,
+    "ollama_options": {
+      "num_ctx": 16384,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 9358706900,
+    "load_duration": 54865700,
+    "prompt_eval_duration": 65818100,
+    "eval_duration": 9134741500
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 151,
+    "eval_count": 262
+  },
+  "derived": {
+    "gen_tokens_per_sec": 28.681709274422268,
+    "prompt_tokens_per_sec": 2294.201746935873,
+    "wall_clock_sec": 11.411278600106016,
+    "total_duration_sec": 9.3587069,
+    "load_duration_sec": 0.0548657,
+    "prompt_eval_duration_sec": 0.0658181,
+    "eval_duration_sec": 9.1347415
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779797525.2381983,
+        "util_gpu_pct": 2.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797525.5337923,
+        "util_gpu_pct": 2.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797525.8283992,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797526.1233094,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797526.4182603,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797526.7113895,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797527.4116423,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 39.0
+      },
+      {
+        "ts": 1779797527.7266128,
+        "util_gpu_pct": 39.0,
+        "vram_used_mb": 14786.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797528.0327795,
+        "util_gpu_pct": 39.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797528.3440797,
+        "util_gpu_pct": 39.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797528.6367288,
+        "util_gpu_pct": 39.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797528.9482536,
+        "util_gpu_pct": 35.0,
+        "vram_used_mb": 14800.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797529.2598827,
+        "util_gpu_pct": 36.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797529.5686424,
+        "util_gpu_pct": 36.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797529.8753114,
+        "util_gpu_pct": 34.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797530.193335,
+        "util_gpu_pct": 38.0,
+        "vram_used_mb": 14803.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797530.509894,
+        "util_gpu_pct": 38.0,
+        "vram_used_mb": 14792.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797530.8201082,
+        "util_gpu_pct": 37.0,
+        "vram_used_mb": 14779.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797531.1283157,
+        "util_gpu_pct": 37.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797531.43811,
+        "util_gpu_pct": 39.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 45.0
+      },
+      {
+        "ts": 1779797531.7472825,
+        "util_gpu_pct": 38.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797532.4891467,
+        "util_gpu_pct": 39.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 45.0
+      },
+      {
+        "ts": 1779797532.8015437,
+        "util_gpu_pct": 34.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797533.0946946,
+        "util_gpu_pct": 34.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797533.4099827,
+        "util_gpu_pct": 36.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797533.721038,
+        "util_gpu_pct": 34.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797534.0442927,
+        "util_gpu_pct": 34.0,
+        "vram_used_mb": 14793.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797534.373716,
+        "util_gpu_pct": 36.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 43.0
+      },
+      {
+        "ts": 1779797534.709661,
+        "util_gpu_pct": 38.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797535.0048664,
+        "util_gpu_pct": 38.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779797535.313514,
+        "util_gpu_pct": 40.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 45.0
+      },
+      {
+        "ts": 1779797535.626884,
+        "util_gpu_pct": 40.0,
+        "vram_used_mb": 14787.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 45.0
+      },
+      {
+        "ts": 1779797535.9380815,
+        "util_gpu_pct": 40.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 45.0
+      },
+      {
+        "ts": 1779797536.7127323,
+        "util_gpu_pct": 17.0,
+        "vram_used_mb": 14775.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      }
+    ],
+    "summary": {
+      "samples": 34,
+      "util_gpu_pct_avg": 29.205882352941178,
+      "util_gpu_pct_max": 40.0,
+      "vram_used_mb_avg": 14785.264705882353,
+      "vram_used_mb_max": 14803.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 45.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779797525.1964107,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56943.69921875
+      },
+      {
+        "ts": 1779797525.4484894,
+        "cpu_pct": 26.6,
+        "ram_used_mb": 56973.87109375
+      },
+      {
+        "ts": 1779797525.7127645,
+        "cpu_pct": 13.4,
+        "ram_used_mb": 56890.9140625
+      },
+      {
+        "ts": 1779797525.9758542,
+        "cpu_pct": 16.2,
+        "ram_used_mb": 56886.50390625
+      },
+      {
+        "ts": 1779797526.2404277,
+        "cpu_pct": 11.1,
+        "ram_used_mb": 56888.671875
+      },
+      {
+        "ts": 1779797526.5029898,
+        "cpu_pct": 19.5,
+        "ram_used_mb": 56980.984375
+      },
+      {
+        "ts": 1779797526.766029,
+        "cpu_pct": 19.7,
+        "ram_used_mb": 56893.26171875
+      },
+      {
+        "ts": 1779797527.0281105,
+        "cpu_pct": 16.9,
+        "ram_used_mb": 56896.4453125
+      },
+      {
+        "ts": 1779797527.2930257,
+        "cpu_pct": 11.2,
+        "ram_used_mb": 56905.8125
+      },
+      {
+        "ts": 1779797527.557172,
+        "cpu_pct": 24.9,
+        "ram_used_mb": 56896.0625
+      },
+      {
+        "ts": 1779797527.8203773,
+        "cpu_pct": 40.1,
+        "ram_used_mb": 57009.0625
+      },
+      {
+        "ts": 1779797528.085516,
+        "cpu_pct": 39.6,
+        "ram_used_mb": 56902.30078125
+      },
+      {
+        "ts": 1779797528.3489604,
+        "cpu_pct": 35.7,
+        "ram_used_mb": 56898.6875
+      },
+      {
+        "ts": 1779797528.6118262,
+        "cpu_pct": 36.8,
+        "ram_used_mb": 56899.0546875
+      },
+      {
+        "ts": 1779797528.876411,
+        "cpu_pct": 30.2,
+        "ram_used_mb": 56911.2109375
+      },
+      {
+        "ts": 1779797529.1405945,
+        "cpu_pct": 53.6,
+        "ram_used_mb": 56923.70703125
+      },
+      {
+        "ts": 1779797529.4035416,
+        "cpu_pct": 42.4,
+        "ram_used_mb": 56915.8359375
+      },
+      {
+        "ts": 1779797529.6658616,
+        "cpu_pct": 35.4,
+        "ram_used_mb": 56924.32421875
+      },
+      {
+        "ts": 1779797529.9288201,
+        "cpu_pct": 28.4,
+        "ram_used_mb": 56911.26953125
+      },
+      {
+        "ts": 1779797530.191926,
+        "cpu_pct": 31.9,
+        "ram_used_mb": 57014.0546875
+      },
+      {
+        "ts": 1779797530.4553351,
+        "cpu_pct": 41.0,
+        "ram_used_mb": 56923.5390625
+      },
+      {
+        "ts": 1779797530.717014,
+        "cpu_pct": 40.8,
+        "ram_used_mb": 56933.58984375
+      },
+      {
+        "ts": 1779797530.9801111,
+        "cpu_pct": 34.3,
+        "ram_used_mb": 56928.6796875
+      },
+      {
+        "ts": 1779797531.2430668,
+        "cpu_pct": 45.2,
+        "ram_used_mb": 56919.16796875
+      },
+      {
+        "ts": 1779797531.5040936,
+        "cpu_pct": 39.4,
+        "ram_used_mb": 57039.57421875
+      },
+      {
+        "ts": 1779797531.767323,
+        "cpu_pct": 40.9,
+        "ram_used_mb": 56935.125
+      },
+      {
+        "ts": 1779797532.0291722,
+        "cpu_pct": 39.7,
+        "ram_used_mb": 56928.21875
+      },
+      {
+        "ts": 1779797532.2936199,
+        "cpu_pct": 31.6,
+        "ram_used_mb": 56928.73046875
+      },
+      {
+        "ts": 1779797532.558785,
+        "cpu_pct": 36.1,
+        "ram_used_mb": 56928.84375
+      },
+      {
+        "ts": 1779797532.821707,
+        "cpu_pct": 44.2,
+        "ram_used_mb": 56937.7890625
+      },
+      {
+        "ts": 1779797533.0869489,
+        "cpu_pct": 38.9,
+        "ram_used_mb": 56946.390625
+      },
+      {
+        "ts": 1779797533.351425,
+        "cpu_pct": 34.1,
+        "ram_used_mb": 56928.85546875
+      },
+      {
+        "ts": 1779797533.616863,
+        "cpu_pct": 33.9,
+        "ram_used_mb": 56809.2734375
+      },
+      {
+        "ts": 1779797533.87951,
+        "cpu_pct": 34.9,
+        "ram_used_mb": 56870.73046875
+      },
+      {
+        "ts": 1779797534.1415243,
+        "cpu_pct": 40.9,
+        "ram_used_mb": 56806.70703125
+      },
+      {
+        "ts": 1779797534.4046738,
+        "cpu_pct": 45.4,
+        "ram_used_mb": 56813.0
+      },
+      {
+        "ts": 1779797534.669762,
+        "cpu_pct": 36.2,
+        "ram_used_mb": 56820.36328125
+      },
+      {
+        "ts": 1779797534.9341145,
+        "cpu_pct": 38.1,
+        "ram_used_mb": 56817.20703125
+      },
+      {
+        "ts": 1779797535.1962068,
+        "cpu_pct": 33.9,
+        "ram_used_mb": 56930.2421875
+      },
+      {
+        "ts": 1779797535.4607518,
+        "cpu_pct": 41.4,
+        "ram_used_mb": 56822.19140625
+      },
+      {
+        "ts": 1779797535.7247643,
+        "cpu_pct": 33.0,
+        "ram_used_mb": 56815.63671875
+      },
+      {
+        "ts": 1779797535.9897113,
+        "cpu_pct": 33.0,
+        "ram_used_mb": 56818.7734375
+      },
+      {
+        "ts": 1779797536.240013,
+        "cpu_pct": 30.7,
+        "ram_used_mb": 56809.71875
+      },
+      {
+        "ts": 1779797536.5031893,
+        "cpu_pct": 30.1,
+        "ram_used_mb": 56813.171875
+      },
+      {
+        "ts": 1779797536.7663107,
+        "cpu_pct": 21.9,
+        "ram_used_mb": 56926.90234375
+      }
+    ],
+    "summary": {
+      "samples": 45,
+      "cpu_pct_avg": 32.29333333333334,
+      "cpu_pct_max": 53.6,
+      "ram_used_mb_max": 57039.57421875,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779797525.410332,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797526.6390588,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797527.8616173,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797529.098295,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797530.3129926,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797531.5580106,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797532.7872276,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797534.0491738,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797535.2864733,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779797536.8348386,
+        "raw": "qwen2.5-coder:14b-instruct-q5_K_M    05d16c5ac1c1    13 GB    8%/92% CPU/GPU    16384      29 minutes from now",
+        "cpu_pct": 8,
+        "gpu_pct": 92,
+        "size": "13 GB",
+        "context": 16384
+      }
+    ],
+    "summary": {
+      "samples": 10,
+      "cpu_pct_avg": 8.0,
+      "gpu_pct_avg": 92.0,
+      "cpu_pct_last": 8,
+      "gpu_pct_last": 92
+    }
+  },
+  "response": {
+    "chars": 752,
+    "text": "```python\nfrom datetime import datetime, timezone\n\ndef parse_iso8601(s: str) -> datetime:\n    try:\n        if s.endswith('Z'):\n            return datetime.fromisoformat(s[:-1]).replace(tzinfo=timezone.utc)\n        elif '+' in s or '-' in s:\n            return datetime.fromisoformat(s)\n        else:\n            return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)\n    except ValueError:\n        raise ValueError(\"Unparseable ISO-8601 timestamp\")\n\n# Examples\n# parse_iso8601(\"2023-01-01T12:00:00Z\")  # UTC with trailing Z\n# parse_iso8601(\"2023-01-01T12:00:00+02:00\")  # Explicit offset\n# parse_iso8601(\"2023-01-01T12:00:00\")  # Naive timestamp, interpreted as UTC\n# parse_iso8601(\"2023-01-01 12:00:00\")  # Invalid format, raises ValueError\n```",
+    "expected_contains": [
+      "def "
+    ],
+    "expected_pass": true
+  }
+}

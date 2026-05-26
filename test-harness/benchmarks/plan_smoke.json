@@ -1,0 +1,16 @@
+{
+  "name": "smoke",
+  "_description": "Tiny plan to validate runall plumbing. One model, one context, fast subset.",
+  "throughput_prompts": [
+    {"name": "short-code", "expected_contains": ["def "]}
+  ],
+  "quality_problems": ["two_sum", "long_module_bug"],
+  "quality_tool_calls": ["json_basic"],
+  "skip_quality_below_context": {"long_module_bug": 8192},
+  "skip_throughput_below_context": {"long-context": 8192},
+  "contexts": [8192],
+  "models": [
+    "qwen2.5-coder:7b",
+    "this-model-does-not-exist:1b"
+  ]
+}

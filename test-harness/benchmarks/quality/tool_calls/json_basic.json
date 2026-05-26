@@ -1,0 +1,10 @@
+{
+  "id": "json_basic",
+  "max_tokens": 200,
+  "prompt": "You are a coding agent. The user said: \"open the file at exactly the path 'README.md' and show me its contents.\"\n\nAvailable tools:\n - list_files(dir: str) -> list[str]\n - read_file(path: str) -> str\n - grep(pattern: str, dir: str) -> list[str]\n\nThe user has already given you the exact path; you do not need to discover it. Reply with EXACTLY one JSON object of the form: {\"tool\": \"<name>\", \"args\": {...}}. Output ONLY the JSON object. No prose. No markdown fences. No explanation.",
+  "checks": {
+    "must_have_keys": ["tool", "args"],
+    "tool_in": ["read_file"],
+    "args_required": ["path"]
+  }
+}

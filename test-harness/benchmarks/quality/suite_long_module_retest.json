@@ -1,0 +1,17 @@
+{
+  "_comment": "Targeted re-test of the fixed long_module_bug problem on the 5 finalists at 16K and 32K context.",
+  "matrix": [
+    {"model": "deepseek-coder-v2:16b", "context": 16384},
+    {"model": "deepseek-coder-v2:16b", "context": 32768},
+    {"model": "codestral:22b-v0.1-q3_K_S", "context": 16384},
+    {"model": "codestral:22b-v0.1-q3_K_S", "context": 32768},
+    {"model": "qwen2.5-coder:14b", "context": 16384},
+    {"model": "qwen2.5-coder:14b", "context": 32768},
+    {"model": "codegemma:7b-instruct", "context": 16384},
+    {"model": "codegemma:7b-instruct", "context": 32768},
+    {"model": "deepseek-coder-v2:16b-lite-instruct-q5_K_M", "context": 16384},
+    {"model": "deepseek-coder-v2:16b-lite-instruct-q5_K_M", "context": 32768}
+  ],
+  "problems": ["long_module_bug"],
+  "tool_calls": []
+}

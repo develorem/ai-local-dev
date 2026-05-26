@@ -1,0 +1,8 @@
+{
+  "_comment": "Tiny smoke-test suite — one of each kind, to validate plumbing.",
+  "matrix": [
+    {"model": "qwen2.5-coder:14b", "context": 16384}
+  ],
+  "problems": ["two_sum"],
+  "tool_calls": ["json_basic"]
+}

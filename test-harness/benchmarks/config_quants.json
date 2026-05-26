@@ -1,0 +1,53 @@
+{
+  "_comment": "Step 4 — Quant sweep on the assumed winner (qwen2.5-coder). Edit the model tags after step 3 if a different model wins. Use `bench.py run --config benchmarks/config_quants.json`.",
+  "matrix": [
+    {
+      "model": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:14b-instruct-q5_K_M",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:14b-instruct-q6_K",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:14b-instruct-q8_0",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:7b-instruct-q8_0",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    }
+  ]
+}

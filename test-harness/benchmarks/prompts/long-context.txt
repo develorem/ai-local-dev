@@ -1,0 +1,194 @@
+You are reviewing the following Python module. Read it carefully, then answer the questions at the bottom. The questions test whether you actually read the whole file, so be precise and quote line snippets where helpful.
+
+```python
+# jobqueue.py — small in-memory job queue with retries, priorities, and metrics.
+
+import heapq
+import logging
+import threading
+import time
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Callable, Optional
+
+log = logging.getLogger("jobqueue")
+
+
+class JobState(Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    DEAD = "dead"  # exceeded max_attempts
+
+
+@dataclass(order=True)
+class _Heaped:
+    priority: int
+    enqueue_seq: int
+    job: "Job" = field(compare=False)
+
+
+@dataclass
+class Job:
+    id: str
+    name: str
+    fn: Callable
+    args: tuple = ()
+    kwargs: dict = field(default_factory=dict)
+    priority: int = 5            # lower runs first; ties broken by enqueue order
+    max_attempts: int = 3
+    backoff_base_sec: float = 0.5
+    attempts: int = 0
+    state: JobState = JobState.PENDING
+    last_error: Optional[str] = None
+    enqueued_at: float = 0.0
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+
+
+class JobQueue:
+    """Single-process job queue. Workers pull from a priority heap.
+
+    Retries on exception with exponential backoff: backoff_base_sec * 2**(attempts-1).
+    A job that fails more than max_attempts times moves to DEAD.
+    """
+
+    def __init__(self, num_workers: int = 4):
+        self._heap: list[_Heaped] = []
+        self._heap_lock = threading.Lock()
+        self._not_empty = threading.Condition(self._heap_lock)
+        self._jobs: dict[str, Job] = {}
+        self._seq = 0
+        self._stopping = threading.Event()
+        self._workers: list[threading.Thread] = []
+        self._num_workers = num_workers
+        self._metrics = defaultdict(int)
+        self._metrics_lock = threading.Lock()
+
+    # ---- public API -----------------------------------------------------
+
+    def start(self) -> None:
+        if self._workers:
+            raise RuntimeError("already started")
+        for i in range(self._num_workers):
+            t = threading.Thread(target=self._worker_loop, name=f"jq-worker-{i}", daemon=True)
+            t.start()
+            self._workers.append(t)
+
+    def stop(self, drain: bool = True, timeout: float = 30.0) -> None:
+        if drain:
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                with self._heap_lock:
+                    if not self._heap and not any(
+                        j.state == JobState.RUNNING for j in self._jobs.values()
+                    ):
+                        break
+                time.sleep(0.05)
+        self._stopping.set()
+        with self._not_empty:
+            self._not_empty.notify_all()
+        for t in self._workers:
+            t.join(timeout=2)
+        self._workers.clear()
+
+    def submit(
+        self,
+        fn: Callable,
+        *args,
+        name: Optional[str] = None,
+        priority: int = 5,
+        max_attempts: int = 3,
+        backoff_base_sec: float = 0.5,
+        **kwargs,
+    ) -> str:
+        job = Job(
+            id=uuid.uuid4().hex,
+            name=name or getattr(fn, "__name__", "anon"),
+            fn=fn,
+            args=args,
+            kwargs=kwargs,
+            priority=priority,
+            max_attempts=max_attempts,
+            backoff_base_sec=backoff_base_sec,
+            enqueued_at=time.time(),
+        )
+        with self._not_empty:
+            self._jobs[job.id] = job
+            self._seq += 1
+            heapq.heappush(self._heap, _Heaped(priority, self._seq, job))
+            self._not_empty.notify()
+        self._bump("submitted")
+        return job.id
+
+    def get(self, job_id: str) -> Optional[Job]:
+        return self._jobs.get(job_id)
+
+    def metrics(self) -> dict:
+        with self._metrics_lock:
+            return dict(self._metrics)
+
+    # ---- internals ------------------------------------------------------
+
+    def _bump(self, key: str, n: int = 1) -> None:
+        with self._metrics_lock:
+            self._metrics[key] += n
+
+    def _pop_ready(self) -> Optional[Job]:
+        with self._not_empty:
+            while not self._heap and not self._stopping.is_set():
+                self._not_empty.wait(timeout=0.5)
+            if self._stopping.is_set() and not self._heap:
+                return None
+            heaped = heapq.heappop(self._heap)
+            return heaped.job
+
+    def _worker_loop(self) -> None:
+        while not self._stopping.is_set():
+            job = self._pop_ready()
+            if job is None:
+                return
+            self._run_one(job)
+
+    def _run_one(self, job: Job) -> None:
+        job.state = JobState.RUNNING
+        job.started_at = time.time()
+        job.attempts += 1
+        self._bump("started")
+        try:
+            job.fn(*job.args, **job.kwargs)
+            job.state = JobState.SUCCEEDED
+            job.finished_at = time.time()
+            self._bump("succeeded")
+        except Exception as e:  # noqa: BLE001
+            job.last_error = repr(e)
+            log.warning("job %s (%s) failed on attempt %d: %s",
+                        job.id, job.name, job.attempts, e)
+            if job.attempts >= job.max_attempts:
+                job.state = JobState.DEAD
+                job.finished_at = time.time()
+                self._bump("dead")
+                return
+            delay = job.backoff_base_sec * (2 ** (job.attempts - 1))
+            time.sleep(delay)
+            job.state = JobState.PENDING
+            with self._not_empty:
+                self._seq += 1
+                heapq.heappush(self._heap, _Heaped(job.priority, self._seq, job))
+                self._not_empty.notify()
+            self._bump("retried")
+```
+
+Questions (answer each, numbered, in order):
+
+1. What is the public interface a caller would use to enqueue and inspect jobs? Name the methods and what each returns.
+2. Priorities — does priority **5** run before priority **1**, or the other way around? Quote the comment that establishes this.
+3. There is at least one correctness bug or race condition in this code. Describe one specifically (where it is, and the concrete sequence of events that triggers it).
+4. The retry path calls `time.sleep(delay)` while holding which locks (if any)? What real-world impact does that have under contention?
+5. Suggest one concrete improvement to make `stop(drain=True, ...)` more reliable, and explain why your suggestion is better.
+6. If a job's `fn` raises and `attempts == max_attempts`, what is the final value of `job.state` and which metrics counter is incremented?
+
+Be specific and concise. Reference identifiers from the module by name.

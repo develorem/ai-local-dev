@@ -1,0 +1,11 @@
+[21:51:26] === overnight start ===
+[21:51:26] repo root: C:\me\dev\github\ai-local-dev\test-harness
+[21:51:26] log: C:\me\dev\github\ai-local-dev\test-harness\results\overnight_20260526_215126.log
+[21:51:26] Stopping existing Ollama processes...
+[21:51:26]   killing ollama app.exe pid=47452
+[21:51:26]   killing ollama.exe pid=36088
+[21:51:28] OLLAMA_FLASH_ATTENTION = 1
+[21:51:28] OLLAMA_KV_CACHE_TYPE   = q8_0
+[21:51:28] Launching ollama serve headless...
+[21:51:28] ollama serve pid=45996 log=C:\me\dev\github\ai-local-dev\test-harness\results\ollama_serve_20260526_215126.log
+[21:52:59] ERROR: ollama API never came up. Aborting.

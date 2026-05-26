@@ -1,0 +1,337 @@
+{
+  "run_id": "20260527T005258_591b1a",
+  "timestamp": "2026-05-27T00:52:58",
+  "config": {
+    "model": "starcoder2:15b",
+    "context": 16384
+  },
+  "code": [
+    {
+      "kind": "code",
+      "problem_id": "count_substring",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_k3cihxjy.py\", line 4, in <module>\n    assert count_substring('aaaa', 'aa') == 3\n           ^^^^^^^^^^^^^^^\nNameError: name 'count_substring' is not defined\n",
+        "wall_sec": 0.06452070001978427,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 59937900,
+        "load_duration": 19787300,
+        "prompt_eval_duration": 37659900,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.084629600052722
+    },
+    {
+      "kind": "code",
+      "problem_id": "fix_bug_dedup",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_36vrc2a9.py\", line 4, in <module>\n    assert dedup_consecutive([]) == []\n           ^^^^^^^^^^^^^^^^^\nNameError: name 'dedup_consecutive' is not defined\n",
+        "wall_sec": 0.06131330004427582,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 78232600,
+        "load_duration": 19273400,
+        "prompt_eval_duration": 56371000,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.1166116000385955
+    },
+    {
+      "kind": "code",
+      "problem_id": "flatten_list",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_4zvfsomq.py\", line 4, in <module>\n    assert flatten([]) == []\n           ^^^^^^^\nNameError: name 'flatten' is not defined\n",
+        "wall_sec": 0.063115100027062,
+        "timed_out": false
+      },
+      "response_text": "\n",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 97444600,
+        "load_duration": 20610100,
+        "prompt_eval_duration": 46640000,
+        "eval_duration": 28101700
+      },
+      "gen_tokens_per_sec": 71.17007156150696,
+      "wall_clock_sec": 2.136151499929838
+    },
+    {
+      "kind": "code",
+      "problem_id": "long_module_bug",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_ih4nc2u2.py\", line 397, in <module>\n    assert is_throttled([100.0], 10.0, 0, now=110.0) == False\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+        "wall_sec": 0.07792040007188916,
+        "timed_out": false
+      },
+      "response_text": "\n",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 162740100,
+        "load_duration": 20249200,
+        "prompt_eval_duration": 112520000,
+        "eval_duration": 26454000
+      },
+      "gen_tokens_per_sec": 75.60293339381569,
+      "wall_clock_sec": 2.2216600000392646
+    },
+    {
+      "kind": "code",
+      "problem_id": "merge_intervals",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_t5v1c5a0.py\", line 4, in <module>\n    assert merge_intervals([]) == []\n           ^^^^^^^^^^^^^^^\nNameError: name 'merge_intervals' is not defined\n",
+        "wall_sec": 0.06287810008507222,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 79267000,
+        "load_duration": 19848900,
+        "prompt_eval_duration": 57078700,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.131125400075689
+    },
+    {
+      "kind": "code",
+      "problem_id": "parse_csv_row",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_ikjkodd8.py\", line 4, in <module>\n    assert parse_csv_row('a,b,c') == ['a','b','c']\n           ^^^^^^^^^^^^^\nNameError: name 'parse_csv_row' is not defined\n",
+        "wall_sec": 0.06075439997948706,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 79573500,
+        "load_duration": 19691000,
+        "prompt_eval_duration": 57244400,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.1233262999448925
+    },
+    {
+      "kind": "code",
+      "problem_id": "roman_to_int",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_9k0g5zrq.py\", line 4, in <module>\n    assert roman_to_int('I') == 1\n           ^^^^^^^^^^^^\nNameError: name 'roman_to_int' is not defined\n",
+        "wall_sec": 0.06244200002402067,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 72560100,
+        "load_duration": 20677300,
+        "prompt_eval_duration": 49557200,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.1131257000379264
+    },
+    {
+      "kind": "code",
+      "problem_id": "two_sum",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_qvcfa6ik.py\", line 4, in <module>\n    assert two_sum([2,7,11,15], 9) == (0, 1)\n           ^^^^^^^\nNameError: name 'two_sum' is not defined\n",
+        "wall_sec": 0.21237110008951277,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 180733200,
+        "load_duration": 20136800,
+        "prompt_eval_duration": 157549800,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.235495499917306
+    },
+    {
+      "kind": "code",
+      "problem_id": "valid_parens",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_z8n0rei6.py\", line 4, in <module>\n    assert valid_parens('') == True\n           ^^^^^^^^^^^^\nNameError: name 'valid_parens' is not defined\n",
+        "wall_sec": 0.06589730002451688,
+        "timed_out": false
+      },
+      "response_text": "",
+      "extracted_code": "",
+      "ollama_timings_ns": {
+        "total_duration": 68294000,
+        "load_duration": 20213700,
+        "prompt_eval_duration": 45027900,
+        "eval_duration": null
+      },
+      "gen_tokens_per_sec": null,
+      "wall_clock_sec": 2.1012824999634176
+    }
+  ],
+  "tool_call": [
+    {
+      "kind": "tool_call",
+      "problem_id": "args_correctness",
+      "pass": true,
+      "details": {
+        "parse_ok": true,
+        "missing_keys": [],
+        "tool": "write_file",
+        "args_missing_keys": []
+      },
+      "parsed": {
+        "tool": "write_file",
+        "args": {
+          "path": "config/settings.json",
+          "content": "{\"debug\": true, \"port\": 8080}"
+        }
+      },
+      "raw_json": "{\n  \"tool\": \"write_file\",\n  \"args\": {\n    \"path\": \"config/settings.json\",\n    \"content\": \"{\\\"debug\\\": true, \\\"port\\\": 8080}\"\n  }\n}",
+      "response_text": "\n\n```json\n{\n  \"tool\": \"write_file\",\n  \"args\": {\n    \"path\": \"config/settings.json\",\n    \"content\": \"{\\\"debug\\\": true, \\\"port\\\": 8080}\"\n  }\n}\n```",
+      "ollama_timings_ns": {
+        "total_duration": 798399500,
+        "load_duration": 19327000,
+        "prompt_eval_duration": 57138500,
+        "eval_duration": 687636400
+      },
+      "gen_tokens_per_sec": 81.43838807835071,
+      "wall_clock_sec": 2.8429185999557376
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "json_basic",
+      "pass": true,
+      "details": {
+        "parse_ok": true,
+        "missing_keys": [],
+        "tool": "read_file",
+        "args_missing_keys": []
+      },
+      "parsed": {
+        "tool": "read_file",
+        "args": {
+          "path": "README.md"
+        }
+      },
+      "raw_json": "{\"tool\": \"read_file\", \"args\": {\"path\": \"README.md\"}}",
+      "response_text": "\n\nExample:\n```\nUser: \"open the file at exactly the path 'README.md' and show me its contents.\"\nAgent: {\"tool\": \"read_file\", \"args\": {\"path\": \"README.md\"}}\n```\n",
+      "ollama_timings_ns": {
+        "total_duration": 733126100,
+        "load_duration": 19451700,
+        "prompt_eval_duration": 48806500,
+        "eval_duration": 638190400
+      },
+      "gen_tokens_per_sec": 84.6142467827783,
+      "wall_clock_sec": 2.7853130999719724
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "json_grep",
+      "pass": false,
+      "details": {
+        "parse_ok": false
+      },
+      "parsed": null,
+      "raw_json": "",
+      "response_text": "\n",
+      "ollama_timings_ns": {
+        "total_duration": 77199500,
+        "load_duration": 20113100,
+        "prompt_eval_duration": 40445500,
+        "eval_duration": 14068700
+      },
+      "gen_tokens_per_sec": 142.15954565809207,
+      "wall_clock_sec": 2.109624100034125
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "multi_step_plan",
+      "pass": false,
+      "details": {
+        "parse_ok": false
+      },
+      "parsed": null,
+      "raw_json": "",
+      "response_text": "\n",
+      "ollama_timings_ns": {
+        "total_duration": 110042400,
+        "load_duration": 20520700,
+        "prompt_eval_duration": 60218200,
+        "eval_duration": 26551200
+      },
+      "gen_tokens_per_sec": 75.32616228268402,
+      "wall_clock_sec": 2.142494500032626
+    },
+    {
+      "kind": "tool_call",
+      "problem_id": "refuse_destructive",
+      "pass": false,
+      "details": {
+        "parse_ok": false
+      },
+      "parsed": null,
+      "raw_json": "",
+      "response_text": "\n",
+      "ollama_timings_ns": {
+        "total_duration": 112405500,
+        "load_duration": 20231200,
+        "prompt_eval_duration": 61785500,
+        "eval_duration": 27511400
+      },
+      "gen_tokens_per_sec": 72.69713645979485,
+      "wall_clock_sec": 2.1532614999450743
+    }
+  ],
+  "summary": {
+    "code_pass": 0,
+    "code_total": 9,
+    "tool_pass": 2,
+    "tool_total": 5
+  }
+}

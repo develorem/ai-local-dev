@@ -1,0 +1,16 @@
+{
+  "id": "roman_to_int",
+  "max_tokens": 500,
+  "timeout_sec": 5,
+  "prompt": "Write a Python function with this exact signature:\n\n    def roman_to_int(s: str) -> int:\n\nIt converts a valid Roman numeral string (uppercase, 1..3999) to its integer value. Subtractive pairs are: IV=4, IX=9, XL=40, XC=90, CD=400, CM=900. You may assume input is always a valid Roman numeral.\n\nReply with the function definition only, in a single ```python``` code block.",
+  "tests": [
+    "assert roman_to_int('I') == 1",
+    "assert roman_to_int('IV') == 4",
+    "assert roman_to_int('IX') == 9",
+    "assert roman_to_int('LVIII') == 58",
+    "assert roman_to_int('MCMXCIV') == 1994",
+    "assert roman_to_int('MMMCMXCIX') == 3999",
+    "assert roman_to_int('XL') == 40",
+    "assert roman_to_int('CD') == 400"
+  ]
+}

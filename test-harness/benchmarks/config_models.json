@@ -1,0 +1,45 @@
+{
+  "_comment": "Step 3 — Model sweep at a fixed agent-realistic context. Ollama default quant (q4_K_M). Use `bench.py run --config benchmarks/config_models.json`.",
+  "matrix": [
+    {
+      "model": "qwen2.5-coder:14b",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:7b",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "deepseek-coder-v2:16b",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "codestral:22b",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "granite-code:8b",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    }
+  ]
+}

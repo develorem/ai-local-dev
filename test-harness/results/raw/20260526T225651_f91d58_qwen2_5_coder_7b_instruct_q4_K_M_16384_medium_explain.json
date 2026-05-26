@@ -1,0 +1,258 @@
+{
+  "run_id": "20260526T225651_f91d58",
+  "timestamp": "2026-05-26T22:56:51",
+  "config": {
+    "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+    "context": 16384,
+    "prompt_name": "medium-explain",
+    "prompt_chars": 805,
+    "ollama_options": {
+      "num_ctx": 16384,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 1874979100,
+    "load_duration": 57076100,
+    "prompt_eval_duration": 29189600,
+    "eval_duration": 1637971200
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 216,
+    "eval_count": 262
+  },
+  "derived": {
+    "gen_tokens_per_sec": 159.95397232869541,
+    "prompt_tokens_per_sec": 7399.89585331762,
+    "wall_clock_sec": 3.9153197000268847,
+    "total_duration_sec": 1.8749791,
+    "load_duration_sec": 0.0570761,
+    "prompt_eval_duration_sec": 0.0291896,
+    "eval_duration_sec": 1.6379712
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779800208.1628976,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 8371.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 38.0
+      },
+      {
+        "ts": 1779800208.4553828,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 8371.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 38.0
+      },
+      {
+        "ts": 1779800208.7516758,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 8371.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779800209.0461385,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 8371.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779800209.3409028,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 8379.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779800209.6368155,
+        "util_gpu_pct": 3.0,
+        "vram_used_mb": 8371.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779800209.9302754,
+        "util_gpu_pct": 3.0,
+        "vram_used_mb": 8354.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779800210.237537,
+        "util_gpu_pct": 56.0,
+        "vram_used_mb": 8354.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 47.0
+      },
+      {
+        "ts": 1779800210.5454414,
+        "util_gpu_pct": 89.0,
+        "vram_used_mb": 8365.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 50.0
+      },
+      {
+        "ts": 1779800210.8627353,
+        "util_gpu_pct": 89.0,
+        "vram_used_mb": 8354.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 50.0
+      },
+      {
+        "ts": 1779800211.1523275,
+        "util_gpu_pct": 90.0,
+        "vram_used_mb": 8354.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      },
+      {
+        "ts": 1779800211.4571345,
+        "util_gpu_pct": 90.0,
+        "vram_used_mb": 8354.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      }
+    ],
+    "summary": {
+      "samples": 12,
+      "util_gpu_pct_avg": 35.416666666666664,
+      "util_gpu_pct_max": 90.0,
+      "vram_used_mb_avg": 8364.083333333334,
+      "vram_used_mb_max": 8379.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 51.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779800207.7144003,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 55940.62890625
+      },
+      {
+        "ts": 1779800207.967631,
+        "cpu_pct": 11.8,
+        "ram_used_mb": 55925.10546875
+      },
+      {
+        "ts": 1779800208.230942,
+        "cpu_pct": 19.0,
+        "ram_used_mb": 56057.9453125
+      },
+      {
+        "ts": 1779800208.4944603,
+        "cpu_pct": 16.2,
+        "ram_used_mb": 55933.7890625
+      },
+      {
+        "ts": 1779800208.759624,
+        "cpu_pct": 10.5,
+        "ram_used_mb": 55930.59375
+      },
+      {
+        "ts": 1779800209.022637,
+        "cpu_pct": 13.4,
+        "ram_used_mb": 55933.56640625
+      },
+      {
+        "ts": 1779800209.2868397,
+        "cpu_pct": 14.4,
+        "ram_used_mb": 55941.30078125
+      },
+      {
+        "ts": 1779800209.5513608,
+        "cpu_pct": 22.7,
+        "ram_used_mb": 55949.4375
+      },
+      {
+        "ts": 1779800209.8142517,
+        "cpu_pct": 14.5,
+        "ram_used_mb": 55952.66796875
+      },
+      {
+        "ts": 1779800210.0758963,
+        "cpu_pct": 17.7,
+        "ram_used_mb": 55949.80078125
+      },
+      {
+        "ts": 1779800210.3357625,
+        "cpu_pct": 20.0,
+        "ram_used_mb": 55955.625
+      },
+      {
+        "ts": 1779800210.5961463,
+        "cpu_pct": 23.2,
+        "ram_used_mb": 56089.40625
+      },
+      {
+        "ts": 1779800210.8549926,
+        "cpu_pct": 21.7,
+        "ram_used_mb": 55978.63671875
+      },
+      {
+        "ts": 1779800211.1138055,
+        "cpu_pct": 14.6,
+        "ram_used_mb": 55960.1796875
+      },
+      {
+        "ts": 1779800211.372449,
+        "cpu_pct": 17.0,
+        "ram_used_mb": 55956.40234375
+      }
+    ],
+    "summary": {
+      "samples": 15,
+      "cpu_pct_avg": 15.78,
+      "cpu_pct_max": 23.2,
+      "ram_used_mb_max": 56089.40625,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779800208.279711,
+        "raw": "qwen2.5-coder:7b-instruct-q4_K_M    dae161e27b0e    5.8 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "5.8 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779800209.4521353,
+        "raw": "qwen2.5-coder:7b-instruct-q4_K_M    dae161e27b0e    5.8 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "5.8 GB",
+        "context": 16384
+      },
+      {
+        "ts": 1779800210.6524649,
+        "raw": "qwen2.5-coder:7b-instruct-q4_K_M    dae161e27b0e    5.8 GB    100% GPU     16384      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "5.8 GB",
+        "context": 16384
+      }
+    ],
+    "summary": {
+      "samples": 3,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 1261,
+    "text": "- **(a) What it does at a high level:** The function `merge_intervals` takes a list of intervals (each interval represented as a list or tuple of two integers indicating the start and end times), sorts them based on their start times, and merges overlapping intervals into a single interval. It then returns a list of merged intervals.\n\n- **(b) Time complexity:** The time complexity is O(n log n) due to the sorting step, where n is the number of intervals. The subsequent merging loop runs in O(n), making the overall time complexity dominated by the sorting step.\n\n- **(c) One correctness bug you can spot:** There is a potential issue with the line `result.append(tuple(current))`. If the last interval does not overlap with any other, it will not be added to the result list. This can be fixed by appending the current interval after the loop ends, regardless of whether it overlaps or not.\n\n- **(d) One performance improvement:** To improve performance, especially for large lists, consider using a generator instead of creating a new list for `result`. This avoids the overhead of storing all merged intervals in memory at once. Additionally, if the input intervals are already sorted, you can skip the sorting step, reducing the time complexity to O(n).",
+    "expected_contains": null,
+    "expected_pass": null
+  }
+}

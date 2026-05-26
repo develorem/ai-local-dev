@@ -1,0 +1,29 @@
+{
+  "matrix": [
+    {
+      "model": "qwen2.5-coder:14b",
+      "context": 8192,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "medium-explain"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:14b",
+      "context": 16384,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "medium-explain"},
+        {"name": "long-context"}
+      ]
+    },
+    {
+      "model": "qwen2.5-coder:14b",
+      "context": 32768,
+      "prompts": [
+        {"name": "short-code", "expected_contains": ["def "]},
+        {"name": "long-context"}
+      ]
+    }
+  ]
+}

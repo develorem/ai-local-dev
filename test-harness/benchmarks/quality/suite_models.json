@@ -1,0 +1,27 @@
+{
+  "_comment": "Step 3 quality suite — same models as config_models.json, at fixed 16K context. Use `bench.py quality --suite benchmarks/quality/suite_models.json`.",
+  "matrix": [
+    {"model": "qwen2.5-coder:14b", "context": 16384},
+    {"model": "qwen2.5-coder:7b",  "context": 16384},
+    {"model": "deepseek-coder-v2:16b", "context": 16384},
+    {"model": "codestral:22b", "context": 16384},
+    {"model": "granite-code:8b", "context": 16384}
+  ],
+  "problems": [
+    "two_sum",
+    "valid_parens",
+    "count_substring",
+    "roman_to_int",
+    "flatten_list",
+    "merge_intervals",
+    "parse_csv_row",
+    "fix_bug_dedup"
+  ],
+  "tool_calls": [
+    "json_basic",
+    "json_grep",
+    "args_correctness",
+    "multi_step_plan",
+    "refuse_destructive"
+  ]
+}

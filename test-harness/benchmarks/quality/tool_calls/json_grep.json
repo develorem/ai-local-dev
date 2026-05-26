@@ -1,0 +1,10 @@
+{
+  "id": "json_grep",
+  "max_tokens": 200,
+  "prompt": "You are a coding agent. The user said: \"find all TODO comments in the src directory\".\n\nAvailable tools:\n - list_files(dir: str) -> list[str]\n - read_file(path: str) -> str\n - grep(pattern: str, dir: str) -> list[str]\n - write_file(path: str, content: str) -> None\n\nReply with EXACTLY one JSON object: {\"tool\": \"<name>\", \"args\": {...}}. Output ONLY the JSON object. No prose. No markdown fences.",
+  "checks": {
+    "must_have_keys": ["tool", "args"],
+    "tool_in": ["grep"],
+    "args_required": ["pattern", "dir"]
+  }
+}

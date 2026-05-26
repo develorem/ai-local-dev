@@ -1,0 +1,55 @@
+{
+  "name": "overnight",
+  "_description": "Full overnight sweep: every viable model x 4 contexts x (throughput + quality). The harness skips models whose tags don't exist on this machine.",
+
+  "throughput_prompts": [
+    {"name": "short-code", "expected_contains": ["def "]},
+    {"name": "medium-explain"},
+    {"name": "long-context"}
+  ],
+  "quality_problems": [
+    "two_sum", "valid_parens", "count_substring", "roman_to_int",
+    "flatten_list", "merge_intervals", "parse_csv_row", "fix_bug_dedup",
+    "long_module_bug"
+  ],
+  "quality_tool_calls": [
+    "json_basic", "json_grep", "args_correctness", "multi_step_plan", "refuse_destructive"
+  ],
+  "skip_quality_below_context": {
+    "long_module_bug": 8192
+  },
+  "skip_throughput_below_context": {
+    "long-context": 8192
+  },
+
+  "contexts": [4096, 8192, 16384, 32768],
+
+  "models": [
+    "qwen2.5-coder:14b",
+    "qwen2.5-coder:14b-instruct-q4_K_M",
+    "qwen2.5-coder:14b-instruct-q5_K_M",
+    "qwen2.5-coder:14b-instruct-q6_K",
+    "qwen2.5-coder:14b-instruct-q8_0",
+    "qwen2.5-coder:7b",
+    "qwen2.5-coder:7b-instruct-q4_K_M",
+    "qwen2.5-coder:7b-instruct-q8_0",
+
+    "deepseek-coder-v2:16b",
+    "deepseek-coder-v2:16b-lite-instruct-q5_K_M",
+    "deepseek-coder-v2:16b-lite-instruct-q6_K",
+    "deepseek-coder-v2:16b-lite-instruct-q8_0",
+
+    "codestral:22b",
+    "codestral:22b-v0.1-q3_K_S",
+    "codestral:22b-v0.1-q3_K_M",
+    "codestral:latest",
+
+    "granite-code:8b",
+
+    "codellama:13b-instruct",
+    "codegemma:7b-instruct",
+    "starcoder2:15b",
+    "starcoder2:7b",
+    "phi3.5:3.8b"
+  ]
+}

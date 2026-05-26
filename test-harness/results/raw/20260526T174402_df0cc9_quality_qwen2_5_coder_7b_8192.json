@@ -1,0 +1,91 @@
+{
+  "run_id": "20260526T174402_df0cc9",
+  "timestamp": "2026-05-26T17:44:02",
+  "config": {
+    "model": "qwen2.5-coder:7b",
+    "context": 8192
+  },
+  "code": [
+    {
+      "kind": "code",
+      "problem_id": "long_module_bug",
+      "pass": false,
+      "execution": {
+        "pass": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\Steven\\AppData\\Local\\Temp\\qual_hjblh4fv.py\", line 400, in <module>\n    assert is_throttled([100.0], 10.0, 0, now=110.0) == False\n           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: is_throttled() got multiple values for argument 'now'\n",
+        "wall_sec": 0.08870990003924817,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef is_throttled(self, now):\n    threshold = now - self.window_sec\n    count = bisect_right(self.history, threshold)\n    return count > self.max_count\n```",
+      "extracted_code": "def is_throttled(self, now):\n    threshold = now - self.window_sec\n    count = bisect_right(self.history, threshold)\n    return count > self.max_count",
+      "ollama_timings_ns": {
+        "total_duration": 393805500,
+        "load_duration": 58743000,
+        "prompt_eval_duration": 43715400,
+        "eval_duration": 262742900
+      },
+      "gen_tokens_per_sec": 159.85208353869885,
+      "wall_clock_sec": 2.444738799938932
+    },
+    {
+      "kind": "code",
+      "problem_id": "two_sum",
+      "pass": true,
+      "execution": {
+        "pass": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "wall_sec": 0.03307709994260222,
+        "timed_out": false
+      },
+      "response_text": "```python\ndef two_sum(nums: list[int], target: int) -> tuple[int, int]:\n    num_to_index = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in num_to_index:\n            return (num_to_index[complement], i)\n        num_to_index[num] = i\n```",
+      "extracted_code": "def two_sum(nums: list[int], target: int) -> tuple[int, int]:\n    num_to_index = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in num_to_index:\n            return (num_to_index[complement], i)\n        num_to_index[num] = i",
+      "ollama_timings_ns": {
+        "total_duration": 695936800,
+        "load_duration": 58669500,
+        "prompt_eval_duration": 26893500,
+        "eval_duration": 554657400
+      },
+      "gen_tokens_per_sec": 133.41569047848276,
+      "wall_clock_sec": 2.7782746999291703
+    }
+  ],
+  "tool_call": [
+    {
+      "kind": "tool_call",
+      "problem_id": "json_basic",
+      "pass": true,
+      "details": {
+        "parse_ok": true,
+        "missing_keys": [],
+        "tool": "read_file",
+        "args_missing_keys": []
+      },
+      "parsed": {
+        "tool": "read_file",
+        "args": {
+          "path": "README.md"
+        }
+      },
+      "raw_json": "{\"tool\": \"read_file\", \"args\": {\"path\": \"README.md\"}}",
+      "response_text": "{\"tool\": \"read_file\", \"args\": {\"path\": \"README.md\"}}",
+      "ollama_timings_ns": {
+        "total_duration": 310411000,
+        "load_duration": 64421100,
+        "prompt_eval_duration": 33367100,
+        "eval_duration": 190712600
+      },
+      "gen_tokens_per_sec": 94.38285671738521,
+      "wall_clock_sec": 2.366158500080928
+    }
+  ],
+  "summary": {
+    "code_pass": 1,
+    "code_total": 2,
+    "tool_pass": 1,
+    "tool_total": 1
+  }
+}

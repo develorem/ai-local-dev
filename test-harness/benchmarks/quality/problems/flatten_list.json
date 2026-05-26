@@ -1,0 +1,14 @@
+{
+  "id": "flatten_list",
+  "max_tokens": 500,
+  "timeout_sec": 5,
+  "prompt": "Write a Python function with this exact signature:\n\n    def flatten(items: list) -> list:\n\nIt deeply flattens an arbitrarily nested list and returns a flat list. Only lists are flattened — tuples, strings, dicts, and other iterables stay as-is. Strings must NOT be split into characters.\n\nReply with the function definition only, in a single ```python``` code block.",
+  "tests": [
+    "assert flatten([]) == []",
+    "assert flatten([1,2,3]) == [1,2,3]",
+    "assert flatten([1,[2,[3,[4]]]]) == [1,2,3,4]",
+    "assert flatten([[1],[2,3],[],[4,[5,6]]]) == [1,2,3,4,5,6]",
+    "assert flatten(['ab',[1,2],'cd']) == ['ab',1,2,'cd']",
+    "assert flatten([(1,2),[3,(4,5)]]) == [(1,2),3,(4,5)]"
+  ]
+}

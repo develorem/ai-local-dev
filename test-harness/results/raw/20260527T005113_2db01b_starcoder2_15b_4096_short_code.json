@@ -1,0 +1,173 @@
+{
+  "run_id": "20260527T005113_2db01b",
+  "timestamp": "2026-05-27T00:51:13",
+  "config": {
+    "model": "starcoder2:15b",
+    "context": 4096,
+    "prompt_name": "short-code",
+    "prompt_chars": 495,
+    "ollama_options": {
+      "num_ctx": 4096,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 88729500,
+    "load_duration": 19647800,
+    "prompt_eval_duration": 48705800,
+    "eval_duration": 17744800
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 143,
+    "eval_count": 2
+  },
+  "derived": {
+    "gen_tokens_per_sec": 112.70907533474595,
+    "prompt_tokens_per_sec": 2935.995302407516,
+    "wall_clock_sec": 2.122760000056587,
+    "total_duration_sec": 0.0887295,
+    "load_duration_sec": 0.0196478,
+    "prompt_eval_duration_sec": 0.0487058,
+    "eval_duration_sec": 0.0177448
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779807071.4574227,
+        "util_gpu_pct": 4.0,
+        "vram_used_mb": 11990.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779807072.1344523,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11990.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779807072.4273746,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11990.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779807072.7381682,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 12249.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779807073.2773576,
+        "util_gpu_pct": 5.0,
+        "vram_used_mb": 12007.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      }
+    ],
+    "summary": {
+      "samples": 5,
+      "util_gpu_pct_avg": 2.4,
+      "util_gpu_pct_max": 5.0,
+      "vram_used_mb_avg": 12045.2,
+      "vram_used_mb_max": 12249.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 37.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779807071.409762,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56746.9765625
+      },
+      {
+        "ts": 1779807071.6654897,
+        "cpu_pct": 18.0,
+        "ram_used_mb": 56754.4375
+      },
+      {
+        "ts": 1779807071.927379,
+        "cpu_pct": 17.9,
+        "ram_used_mb": 56498.828125
+      },
+      {
+        "ts": 1779807072.1885464,
+        "cpu_pct": 11.6,
+        "ram_used_mb": 56506.609375
+      },
+      {
+        "ts": 1779807072.4499822,
+        "cpu_pct": 13.2,
+        "ram_used_mb": 56500.89453125
+      },
+      {
+        "ts": 1779807072.7145216,
+        "cpu_pct": 12.8,
+        "ram_used_mb": 56618.1953125
+      },
+      {
+        "ts": 1779807072.97575,
+        "cpu_pct": 20.1,
+        "ram_used_mb": 56498.09375
+      },
+      {
+        "ts": 1779807073.2387557,
+        "cpu_pct": 10.5,
+        "ram_used_mb": 56495.7109375
+      },
+      {
+        "ts": 1779807073.5036745,
+        "cpu_pct": 12.0,
+        "ram_used_mb": 56500.578125
+      }
+    ],
+    "summary": {
+      "samples": 9,
+      "cpu_pct_avg": 12.899999999999999,
+      "cpu_pct_max": 20.1,
+      "ram_used_mb_max": 56754.4375,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779807071.6089082,
+        "raw": "starcoder2:15b    21ae152d49e0    9.4 GB    100% GPU     4096       29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "9.4 GB",
+        "context": 4096
+      },
+      {
+        "ts": 1779807072.7940342,
+        "raw": "starcoder2:15b    21ae152d49e0    9.4 GB    100% GPU     4096       29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "9.4 GB",
+        "context": 4096
+      }
+    ],
+    "summary": {
+      "samples": 2,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 1,
+    "text": "\n",
+    "expected_contains": [
+      "def "
+    ],
+    "expected_pass": false
+  }
+}

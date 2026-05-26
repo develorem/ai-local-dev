@@ -1,0 +1,17 @@
+{
+  "id": "valid_parens",
+  "max_tokens": 500,
+  "timeout_sec": 5,
+  "prompt": "Write a Python function with this exact signature:\n\n    def valid_parens(s: str) -> bool:\n\nReturns True iff every opening bracket in s is matched by the correct closing bracket in the right order. Recognised pairs: () [] {}. Any other character is ignored (treated as text). Empty string is valid.\n\nReply with the function definition only, in a single ```python``` code block.",
+  "tests": [
+    "assert valid_parens('') == True",
+    "assert valid_parens('()') == True",
+    "assert valid_parens('()[]{}') == True",
+    "assert valid_parens('(]') == False",
+    "assert valid_parens('([)]') == False",
+    "assert valid_parens('{[]}') == True",
+    "assert valid_parens('a(b)c[d{e}f]g') == True",
+    "assert valid_parens(')(') == False",
+    "assert valid_parens('(((') == False"
+  ]
+}

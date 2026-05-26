@@ -1,0 +1,22 @@
+{
+  "matrix": [
+    {"model": "qwen2.5-coder:14b", "context": 16384}
+  ],
+  "problems": [
+    "two_sum",
+    "valid_parens",
+    "count_substring",
+    "roman_to_int",
+    "flatten_list",
+    "merge_intervals",
+    "parse_csv_row",
+    "fix_bug_dedup"
+  ],
+  "tool_calls": [
+    "json_basic",
+    "json_grep",
+    "args_correctness",
+    "multi_step_plan",
+    "refuse_destructive"
+  ]
+}

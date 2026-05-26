@@ -1,0 +1,192 @@
+{
+  "run_id": "20260527T010249_f601fa",
+  "timestamp": "2026-05-27T01:02:49",
+  "config": {
+    "model": "starcoder2:7b",
+    "context": 8192,
+    "prompt_name": "long-context",
+    "prompt_chars": 6882,
+    "ollama_options": {
+      "num_ctx": 8192,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 273157100,
+    "load_duration": 19628500,
+    "prompt_eval_duration": 235490600,
+    "eval_duration": 7181800
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 1874,
+    "eval_count": 2
+  },
+  "derived": {
+    "gen_tokens_per_sec": 278.4817176752346,
+    "prompt_tokens_per_sec": 7957.854793354809,
+    "wall_clock_sec": 2.3197216000407934,
+    "total_duration_sec": 0.2731571,
+    "load_duration_sec": 0.0196285,
+    "prompt_eval_duration_sec": 0.2354906,
+    "eval_duration_sec": 0.0071818
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779807767.3454144,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7466.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807767.6384852,
+        "util_gpu_pct": 11.0,
+        "vram_used_mb": 7466.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807767.9328635,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7478.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807768.2298803,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7478.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807768.5272796,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7478.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807768.8238943,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7478.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807769.116625,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7478.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      },
+      {
+        "ts": 1779807769.4255273,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 7478.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 44.0
+      }
+    ],
+    "summary": {
+      "samples": 8,
+      "util_gpu_pct_avg": 2.25,
+      "util_gpu_pct_max": 11.0,
+      "vram_used_mb_avg": 7475.0,
+      "vram_used_mb_max": 7478.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 44.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779807767.2982738,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56265.4453125
+      },
+      {
+        "ts": 1779807767.5531464,
+        "cpu_pct": 19.9,
+        "ram_used_mb": 56267.30859375
+      },
+      {
+        "ts": 1779807767.8166528,
+        "cpu_pct": 11.1,
+        "ram_used_mb": 56270.36328125
+      },
+      {
+        "ts": 1779807768.081822,
+        "cpu_pct": 10.3,
+        "ram_used_mb": 56266.671875
+      },
+      {
+        "ts": 1779807768.3469722,
+        "cpu_pct": 14.0,
+        "ram_used_mb": 56270.8984375
+      },
+      {
+        "ts": 1779807768.5983136,
+        "cpu_pct": 12.8,
+        "ram_used_mb": 56388.93359375
+      },
+      {
+        "ts": 1779807768.862083,
+        "cpu_pct": 19.6,
+        "ram_used_mb": 56273.58203125
+      },
+      {
+        "ts": 1779807769.1249607,
+        "cpu_pct": 16.6,
+        "ram_used_mb": 56267.25390625
+      },
+      {
+        "ts": 1779807769.386245,
+        "cpu_pct": 22.2,
+        "ram_used_mb": 56276.671875
+      }
+    ],
+    "summary": {
+      "samples": 9,
+      "cpu_pct_avg": 14.055555555555555,
+      "cpu_pct_max": 22.2,
+      "ram_used_mb_max": 56388.93359375,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779807767.473834,
+        "raw": "starcoder2:7b    1550ab21b10d    4.7 GB    100% GPU     8192       29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "4.7 GB",
+        "context": 8192
+      },
+      {
+        "ts": 1779807768.6642687,
+        "raw": "starcoder2:7b    1550ab21b10d    4.7 GB    100% GPU     8192       29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "4.7 GB",
+        "context": 8192
+      }
+    ],
+    "summary": {
+      "samples": 2,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 1,
+    "text": "\n",
+    "expected_contains": null,
+    "expected_pass": null
+  }
+}

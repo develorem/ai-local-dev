@@ -1,0 +1,13 @@
+{
+  "id": "two_sum",
+  "max_tokens": 512,
+  "timeout_sec": 5,
+  "prompt": "Write a Python function with this exact signature:\n\n    def two_sum(nums: list[int], target: int) -> tuple[int, int]:\n\nIt returns a tuple (i, j) with i < j such that nums[i] + nums[j] == target. Assume exactly one solution exists. The same index may not be used twice. Aim for O(n) time.\n\nReply with the function definition only, in a single ```python``` code block. No prose, no examples, no other code.",
+  "tests": [
+    "assert two_sum([2,7,11,15], 9) == (0, 1)",
+    "assert two_sum([3,2,4], 6) == (1, 2)",
+    "assert two_sum([3,3], 6) == (0, 1)",
+    "assert two_sum([10,15,3,7], 17) == (0, 3)",
+    "assert two_sum([-3, 4, 3, 90], 0) == (0, 2)"
+  ]
+}

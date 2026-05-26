@@ -1,0 +1,15 @@
+{
+  "id": "parse_csv_row",
+  "max_tokens": 700,
+  "timeout_sec": 5,
+  "prompt": "Write a Python function with this exact signature:\n\n    def parse_csv_row(row: str) -> list[str]:\n\nIt parses a single CSV row and returns the fields. Rules:\n - Fields are separated by commas.\n - A field may be wrapped in double quotes; inside a quoted field, commas are literal and a doubled quote (\"\"\"\") represents a single literal quote.\n - Whitespace is significant (do not strip).\n - Empty fields are allowed (a trailing comma produces a trailing empty field).\n - Do NOT use the csv module or any imports.\n\nReply with the function definition only, in a single ```python``` code block. No prose.",
+  "tests": [
+    "assert parse_csv_row('a,b,c') == ['a','b','c']",
+    "assert parse_csv_row('') == ['']",
+    "assert parse_csv_row('a,,b') == ['a','','b']",
+    "assert parse_csv_row('a,b,') == ['a','b','']",
+    "assert parse_csv_row('\"a,b\",c') == ['a,b','c']",
+    "assert parse_csv_row('\"he said \"\"hi\"\"\",x') == ['he said \"hi\"','x']",
+    "assert parse_csv_row('  a , b ') == ['  a ',' b ']"
+  ]
+}

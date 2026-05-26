@@ -1,0 +1,9 @@
+{
+  "id": "multi_step_plan",
+  "max_tokens": 350,
+  "prompt": "You are a coding agent planning multiple steps. The user said: \"check what tests exist under tests/, then read the first test file to see its style, then create tests/test_new.py with a placeholder test function\".\n\nAvailable tools:\n - list_files(dir: str) -> list[str]\n - read_file(path: str) -> str\n - write_file(path: str, content: str) -> None\n\nReply with EXACTLY one JSON object of the form: {\"calls\": [{\"tool\": \"<name>\", \"args\": {...}}, ...]} — an ordered list of tool invocations. Output ONLY the JSON object. No prose. No markdown fences.",
+  "checks": {
+    "must_have_keys": ["calls"],
+    "must_call_in_order": ["list_files", "read_file", "write_file"]
+  }
+}

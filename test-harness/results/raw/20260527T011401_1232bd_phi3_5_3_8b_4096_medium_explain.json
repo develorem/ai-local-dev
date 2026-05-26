@@ -1,0 +1,307 @@
+{
+  "run_id": "20260527T011401_1232bd",
+  "timestamp": "2026-05-27T01:14:01",
+  "config": {
+    "model": "phi3.5:3.8b",
+    "context": 4096,
+    "prompt_name": "medium-explain",
+    "prompt_chars": 805,
+    "ollama_options": {
+      "num_ctx": 4096,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 2880721800,
+    "load_duration": 10897200,
+    "prompt_eval_duration": 20553300,
+    "eval_duration": 2623564700
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 243,
+    "eval_count": 636
+  },
+  "derived": {
+    "gen_tokens_per_sec": 242.41826397496504,
+    "prompt_tokens_per_sec": 11822.918947322329,
+    "wall_clock_sec": 4.920304600032978,
+    "total_duration_sec": 2.8807218,
+    "load_duration_sec": 0.0108972,
+    "prompt_eval_duration_sec": 0.0205533,
+    "eval_duration_sec": 2.6235647
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779808436.9598262,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11051.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 42.0
+      },
+      {
+        "ts": 1779808437.253233,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11051.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808437.5520449,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11051.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808438.0862603,
+        "util_gpu_pct": 2.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808438.3966968,
+        "util_gpu_pct": 2.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808438.6917267,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808438.9863615,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808439.2946982,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 41.0
+      },
+      {
+        "ts": 1779808439.6005847,
+        "util_gpu_pct": 93.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      },
+      {
+        "ts": 1779808439.9090486,
+        "util_gpu_pct": 93.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      },
+      {
+        "ts": 1779808440.2177565,
+        "util_gpu_pct": 93.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      },
+      {
+        "ts": 1779808440.7084672,
+        "util_gpu_pct": 89.0,
+        "vram_used_mb": 11063.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 52.0
+      },
+      {
+        "ts": 1779808441.015352,
+        "util_gpu_pct": 90.0,
+        "vram_used_mb": 11051.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      },
+      {
+        "ts": 1779808441.310937,
+        "util_gpu_pct": 90.0,
+        "vram_used_mb": 11051.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      },
+      {
+        "ts": 1779808441.6033397,
+        "util_gpu_pct": 87.0,
+        "vram_used_mb": 11051.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 51.0
+      }
+    ],
+    "summary": {
+      "samples": 15,
+      "util_gpu_pct_avg": 43.0,
+      "util_gpu_pct_max": 93.0,
+      "vram_used_mb_avg": 11058.2,
+      "vram_used_mb_max": 11063.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 52.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779808436.9110992,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56743.6875
+      },
+      {
+        "ts": 1779808437.1666424,
+        "cpu_pct": 19.8,
+        "ram_used_mb": 56731.1875
+      },
+      {
+        "ts": 1779808437.418477,
+        "cpu_pct": 15.2,
+        "ram_used_mb": 56731.9765625
+      },
+      {
+        "ts": 1779808437.6706965,
+        "cpu_pct": 14.9,
+        "ram_used_mb": 56729.68359375
+      },
+      {
+        "ts": 1779808437.9231572,
+        "cpu_pct": 12.0,
+        "ram_used_mb": 56743.5625
+      },
+      {
+        "ts": 1779808438.1867936,
+        "cpu_pct": 17.2,
+        "ram_used_mb": 56825.81640625
+      },
+      {
+        "ts": 1779808438.4501247,
+        "cpu_pct": 12.8,
+        "ram_used_mb": 56735.6484375
+      },
+      {
+        "ts": 1779808438.7149305,
+        "cpu_pct": 18.4,
+        "ram_used_mb": 56740.859375
+      },
+      {
+        "ts": 1779808438.9782963,
+        "cpu_pct": 19.7,
+        "ram_used_mb": 56764.9921875
+      },
+      {
+        "ts": 1779808439.2394392,
+        "cpu_pct": 19.2,
+        "ram_used_mb": 56745.98046875
+      },
+      {
+        "ts": 1779808439.4996033,
+        "cpu_pct": 20.5,
+        "ram_used_mb": 56749.66796875
+      },
+      {
+        "ts": 1779808439.7610524,
+        "cpu_pct": 15.9,
+        "ram_used_mb": 56763.25390625
+      },
+      {
+        "ts": 1779808440.0233078,
+        "cpu_pct": 15.6,
+        "ram_used_mb": 56765.30859375
+      },
+      {
+        "ts": 1779808440.2865467,
+        "cpu_pct": 22.1,
+        "ram_used_mb": 56759.74609375
+      },
+      {
+        "ts": 1779808440.5468214,
+        "cpu_pct": 18.5,
+        "ram_used_mb": 56759.64453125
+      },
+      {
+        "ts": 1779808440.8080542,
+        "cpu_pct": 18.3,
+        "ram_used_mb": 56877.9609375
+      },
+      {
+        "ts": 1779808441.0695043,
+        "cpu_pct": 16.5,
+        "ram_used_mb": 56761.5625
+      },
+      {
+        "ts": 1779808441.332098,
+        "cpu_pct": 15.3,
+        "ram_used_mb": 56770.62109375
+      },
+      {
+        "ts": 1779808441.5960104,
+        "cpu_pct": 31.4,
+        "ram_used_mb": 56786.5
+      }
+    ],
+    "summary": {
+      "samples": 19,
+      "cpu_pct_avg": 17.01578947368421,
+      "cpu_pct_max": 31.4,
+      "ram_used_mb_max": 56877.9609375,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779808437.0849848,
+        "raw": "phi3.5:3.8b      61819fb370a3    3.1 GB    100% GPU     4096       29 minutes from now    ",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "3.1 GB",
+        "context": 4096
+      },
+      {
+        "ts": 1779808438.2692988,
+        "raw": "phi3.5:3.8b      61819fb370a3    3.1 GB    100% GPU     4096       29 minutes from now    ",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "3.1 GB",
+        "context": 4096
+      },
+      {
+        "ts": 1779808439.4742506,
+        "raw": "phi3.5:3.8b      61819fb370a3    3.1 GB    100% GPU     4096       29 minutes from now    ",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "3.1 GB",
+        "context": 4096
+      },
+      {
+        "ts": 1779808440.870621,
+        "raw": "phi3.5:3.8b      61819fb370a3    3.1 GB    100% GPU     4096       29 minutes from now    ",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "3.1 GB",
+        "context": 4096
+      }
+    ],
+    "summary": {
+      "samples": 4,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 2807,
+    "text": "- The function `merge_intervals` takes a list of intervals (each interval is a tuple of two integers) and merges overlapping or adjacent intervals into continuous ranges, returning the merged list as tuples in non-decreasing order based on their start times.\n- Time complexity: O(n log n), where n is the number of intervals; sorting takes O(n log n) time, which dominates other linear operations within loops and append calls to `result`.\n- Space complexity: O(n), considering additional space for sorted_intervals copy (if not using in-place sort with a stable algorithm). The worst case is when all elements are merged into one tuple.\n- Correctness bug: Lines 7 (`current[1] = max(current[1], end)`) and subsequent logic assume `current` behaves like an array, but it's actually just two integers; this will cause a TypeError if executed as written because you cannot assign to individual elements of non-array objects.\n- Performance improvement: Convert the for loop into list comprehension or use built-in functions where possible (e.g., using `enumerate` instead of range(1, len(...))). This can make code more Pythonic and potentially faster due to internal optimizations in CPython interpreter'dict'.\n  - Replace line 6 with: `[current := [start, end] for start, end in sorted_intervals[i:] if not (end <= current[0])]`; this uses a list comprehension that avoids the explicit loop and conditionals.\n- The function assumes intervals are non-empty tuples of integers or floats with two elements each representing 'start' and 'end'. It does not handle cases where input might be invalid, such as negative times which may represent errors in real scenarios (e.g., start time after end).\n- Lines 4 (`sorted_intervals = sorted(intervals, key=lambda x: x[0])`) assume that each interval is a tuple with at least two elements; there's no error handling for tuples of incorrect length or non-integer values.\n- The function does not account for intervals represented as strings which could be parsed into integers before processing (e.g., '1,5'). This can lead to unexpected behavior if the input format varies widely without validation and conversion steps being added at an appropriate place in code logic\u2014preferably after checking that all elements are indeed tuples of two items each with numeric values.\n- The final append (`result.append(tuple(current))`) assumes `current` is a list; if it's not, this will raise TypeError when converting to tuple due to the incorrect type assignment earlier in line 7\u2014this should be fixed by initializing current as two integers instead of copying from sorted_intervals[0].\n- The function does not handle empty input gracefully beyond returning an immediately empty list; it could provide a more informative return value or raise exception for better error handling.",
+    "expected_contains": null,
+    "expected_pass": null
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "count_substring",
+  "max_tokens": 500,
+  "timeout_sec": 5,
+  "prompt": "Write a Python function with this exact signature:\n\n    def count_substring(s: str, sub: str) -> int:\n\nIt counts how many times `sub` occurs in `s`, INCLUDING OVERLAPPING occurrences. Examples: count_substring('aaaa','aa') == 3 (positions 0,1,2). Empty `sub` returns 0.\n\nReply with the function definition only, in a single ```python``` code block.",
+  "tests": [
+    "assert count_substring('aaaa', 'aa') == 3",
+    "assert count_substring('hello', 'l') == 2",
+    "assert count_substring('hello', 'world') == 0",
+    "assert count_substring('abababab', 'aba') == 3",
+    "assert count_substring('', 'x') == 0",
+    "assert count_substring('hello', '') == 0",
+    "assert count_substring('abc', 'abc') == 1",
+    "assert count_substring('aaa', 'aaaa') == 0"
+  ]
+}

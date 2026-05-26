@@ -1,0 +1,28 @@
+{
+  "_comment": "Step 4 quality suite — quant sweep on the winner. Edit model tags after step 3 if different model wins.",
+  "matrix": [
+    {"model": "qwen2.5-coder:14b-instruct-q4_K_M", "context": 16384},
+    {"model": "qwen2.5-coder:14b-instruct-q5_K_M", "context": 16384},
+    {"model": "qwen2.5-coder:14b-instruct-q6_K",   "context": 16384},
+    {"model": "qwen2.5-coder:14b-instruct-q8_0",   "context": 16384},
+    {"model": "qwen2.5-coder:7b-instruct-q4_K_M",  "context": 16384},
+    {"model": "qwen2.5-coder:7b-instruct-q8_0",    "context": 16384}
+  ],
+  "problems": [
+    "two_sum",
+    "valid_parens",
+    "count_substring",
+    "roman_to_int",
+    "flatten_list",
+    "merge_intervals",
+    "parse_csv_row",
+    "fix_bug_dedup"
+  ],
+  "tool_calls": [
+    "json_basic",
+    "json_grep",
+    "args_correctness",
+    "multi_step_plan",
+    "refuse_destructive"
+  ]
+}

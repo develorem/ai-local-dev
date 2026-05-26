@@ -1,0 +1,244 @@
+{
+  "run_id": "20260527T003644_b6d362",
+  "timestamp": "2026-05-27T00:36:44",
+  "config": {
+    "model": "granite-code:8b",
+    "context": 32768,
+    "prompt_name": "medium-explain",
+    "prompt_chars": 805,
+    "ollama_options": {
+      "num_ctx": 32768,
+      "temperature": 0,
+      "seed": 42
+    }
+  },
+  "ollama_timings_ns": {
+    "total_duration": 1614815300,
+    "load_duration": 20315900,
+    "prompt_eval_duration": 35294700,
+    "eval_duration": 1466046000
+  },
+  "ollama_counts": {
+    "prompt_eval_count": 217,
+    "eval_count": 222
+  },
+  "derived": {
+    "gen_tokens_per_sec": 151.42771782058682,
+    "prompt_tokens_per_sec": 6148.23188750719,
+    "wall_clock_sec": 3.6502441000193357,
+    "total_duration_sec": 1.6148153,
+    "load_duration_sec": 0.0203159,
+    "prompt_eval_duration_sec": 0.0352947,
+    "eval_duration_sec": 1.466046
+  },
+  "gpu": {
+    "samples": [
+      {
+        "ts": 1779806200.4523485,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10339.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806200.7483618,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10339.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806201.0432544,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10322.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806201.3514,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10322.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806201.864808,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10322.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806202.1605463,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10322.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806202.486878,
+        "util_gpu_pct": 1.0,
+        "vram_used_mb": 10322.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 37.0
+      },
+      {
+        "ts": 1779806203.045187,
+        "util_gpu_pct": 95.0,
+        "vram_used_mb": 10334.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 46.0
+      },
+      {
+        "ts": 1779806203.3554432,
+        "util_gpu_pct": 95.0,
+        "vram_used_mb": 10334.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 47.0
+      },
+      {
+        "ts": 1779806204.1550531,
+        "util_gpu_pct": 95.0,
+        "vram_used_mb": 10334.0,
+        "vram_total_mb": 16303.0,
+        "temp_c": 48.0
+      }
+    ],
+    "summary": {
+      "samples": 10,
+      "util_gpu_pct_avg": 29.2,
+      "util_gpu_pct_max": 95.0,
+      "vram_used_mb_avg": 10329.0,
+      "vram_used_mb_max": 10339.0,
+      "vram_total_mb": 16303.0,
+      "temp_c_max": 48.0
+    }
+  },
+  "cpu": {
+    "samples": [
+      {
+        "ts": 1779806200.3393989,
+        "cpu_pct": 0.0,
+        "ram_used_mb": 56378.4375
+      },
+      {
+        "ts": 1779806200.6004245,
+        "cpu_pct": 20.9,
+        "ram_used_mb": 56383.9375
+      },
+      {
+        "ts": 1779806200.864851,
+        "cpu_pct": 11.5,
+        "ram_used_mb": 56377.34375
+      },
+      {
+        "ts": 1779806201.128513,
+        "cpu_pct": 16.8,
+        "ram_used_mb": 56372.53125
+      },
+      {
+        "ts": 1779806201.3900585,
+        "cpu_pct": 19.5,
+        "ram_used_mb": 56374.37890625
+      },
+      {
+        "ts": 1779806201.6542022,
+        "cpu_pct": 12.2,
+        "ram_used_mb": 56384.80078125
+      },
+      {
+        "ts": 1779806201.9191291,
+        "cpu_pct": 13.6,
+        "ram_used_mb": 56508.171875
+      },
+      {
+        "ts": 1779806202.1847453,
+        "cpu_pct": 14.1,
+        "ram_used_mb": 56380.07421875
+      },
+      {
+        "ts": 1779806202.449055,
+        "cpu_pct": 16.1,
+        "ram_used_mb": 56401.12109375
+      },
+      {
+        "ts": 1779806202.7115192,
+        "cpu_pct": 15.1,
+        "ram_used_mb": 56390.0703125
+      },
+      {
+        "ts": 1779806202.9758093,
+        "cpu_pct": 14.1,
+        "ram_used_mb": 56385.26171875
+      },
+      {
+        "ts": 1779806203.237382,
+        "cpu_pct": 19.4,
+        "ram_used_mb": 56392.80859375
+      },
+      {
+        "ts": 1779806203.500525,
+        "cpu_pct": 19.7,
+        "ram_used_mb": 56385.34765625
+      },
+      {
+        "ts": 1779806203.7625444,
+        "cpu_pct": 23.8,
+        "ram_used_mb": 56395.84765625
+      },
+      {
+        "ts": 1779806204.0240982,
+        "cpu_pct": 12.9,
+        "ram_used_mb": 56387.07421875
+      }
+    ],
+    "summary": {
+      "samples": 15,
+      "cpu_pct_avg": 15.313333333333333,
+      "cpu_pct_max": 23.8,
+      "ram_used_mb_max": 56508.171875,
+      "available": true
+    }
+  },
+  "ollama_ps": {
+    "samples": [
+      {
+        "ts": 1779806200.5782123,
+        "raw": "granite-code:8b    36c3c3b9683b    9.3 GB    100% GPU     32768      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "9.3 GB",
+        "context": 32768
+      },
+      {
+        "ts": 1779806201.9773867,
+        "raw": "granite-code:8b    36c3c3b9683b    9.3 GB    100% GPU     32768      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "9.3 GB",
+        "context": 32768
+      },
+      {
+        "ts": 1779806203.2016206,
+        "raw": "granite-code:8b    36c3c3b9683b    9.3 GB    100% GPU     32768      29 minutes from now",
+        "cpu_pct": 0,
+        "gpu_pct": 100,
+        "size": "9.3 GB",
+        "context": 32768
+      }
+    ],
+    "summary": {
+      "samples": 3,
+      "cpu_pct_avg": 0.0,
+      "gpu_pct_avg": 100.0,
+      "cpu_pct_last": 0,
+      "gpu_pct_last": 100
+    }
+  },
+  "response": {
+    "chars": 818,
+    "text": "- (a) The function takes a list of intervals and merges any overlapping or touching intervals into a single interval. For example, given `intervals = [(1, 3), (2, 6), (8, 10), (15, 18)]`, the function returns `[(1, 6), (8, 10), (15, 18)]`.\n- (b) The time complexity is O(n log n) due to sorting the intervals and O(n) for iterating through them. The space complexity is also O(n).\n- (c) One correctness bug is that the function returns an empty list when `intervals` is an empty list, which is not specified in the problem statement.\n- (d) To improve performance, we can use a greedy algorithm instead of sorting and iterating through all intervals. We can sort the intervals by their end times and then merge them from left to right. This approach avoids sorting the entire list and only requires two passes over it.\n",
+    "expected_contains": null,
+    "expected_pass": null
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "fix_bug_dedup",
+  "max_tokens": 700,
+  "timeout_sec": 5,
+  "prompt": "The following Python function is supposed to return the input list with consecutive duplicates collapsed (i.e. keep only the first of each run). It has a bug. Rewrite it correctly, keeping the same signature.\n\n    def dedup_consecutive(items: list) -> list:\n        result = []\n        for i, x in enumerate(items):\n            if items[i] != items[i-1]:\n                result.append(x)\n        return result\n\nReply with the corrected function only, in a single ```python``` code block. No prose, no explanation.",
+  "tests": [
+    "assert dedup_consecutive([]) == []",
+    "assert dedup_consecutive([1]) == [1]",
+    "assert dedup_consecutive([1,1,1]) == [1]",
+    "assert dedup_consecutive([1,2,3]) == [1,2,3]",
+    "assert dedup_consecutive([1,1,2,2,2,3,1,1]) == [1,2,3,1]",
+    "assert dedup_consecutive(['a','a','b','a']) == ['a','b','a']",
+    "assert dedup_consecutive([0,0]) == [0]"
+  ]
+}
