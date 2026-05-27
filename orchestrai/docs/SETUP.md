@@ -1,21 +1,21 @@
 # OrchestrAi — Setup
 
-How to get OrchestrAi running on a clean machine. Target host: Windows 11 with an NVIDIA GPU. Linux and Mac work too — Mac without an NVIDIA GPU means CPU-only Ollama, which won't be usable for serious work.
+How to get OrchestrAi running on a clean machine. Target host: Windows 11 with an NVIDIA GPU. Linux and Mac (Apple Silicon — different inference path) work too with minor adjustments.
 
 ## Prerequisites
 
-| Item | Why | How to install |
+| Item | Why | How |
 |---|---|---|
-| **Docker Desktop** (latest stable) | Runs everything | https://www.docker.com/products/docker-desktop |
-| **WSL2** (Windows only) | Docker backend that supports GPU passthrough | `wsl --install` from an admin PowerShell, then reboot |
-| **NVIDIA driver** (recent, e.g. 555+ on Windows) | Required for CUDA in containers | https://www.nvidia.com/drivers — newer is better, RTX 50-series needs a 555+ driver |
-| **Git** | clone this repo | https://git-scm.com/downloads |
+| **Docker Desktop** (latest stable) | Runs the Hub, Agent, Ollama | https://www.docker.com/products/docker-desktop |
+| **WSL2** (Windows only) | Docker backend with GPU passthrough | `wsl --install` from admin PowerShell, then reboot |
+| **NVIDIA driver** (555+ for RTX 50-series) | CUDA in containers | https://www.nvidia.com/drivers |
+| **Git** | Clone this repo | https://git-scm.com/downloads |
 
-That's all. No Python install, no Ollama install, no Node — everything else runs in containers.
+No Python install, no Ollama install on the host, no Node — everything ships in containers.
 
-## WSL2 tuning (Windows only — important)
+## WSL2 tuning (Windows only)
 
-WSL2 defaults to ~50% of host RAM and can swap aggressively. For LLM workloads on a 32–64 GB machine, that's not enough. Create `C:\Users\<you>\.wslconfig`:
+Create `C:\Users\<you>\.wslconfig`:
 
 ```ini
 [wsl2]
@@ -28,25 +28,17 @@ localhostForwarding=true
 autoMemoryReclaim=gradual
 ```
 
-Adjust `memory` and `processors` to your host capacity:
-- Memory: leave ~16 GB for Windows itself, give WSL2 the rest. On 64 GB host → `memory=48GB`. On 32 GB host → `memory=20GB`.
-- Processors: leave 4 logical cores for Windows.
+Adjust `memory` to your host RAM — leave ~16 GB for Windows.
 
-After editing, restart WSL: `wsl --shutdown` in PowerShell, then re-open Docker Desktop.
+Restart WSL: `wsl --shutdown` then re-open Docker Desktop.
 
-## Verify GPU passthrough works
-
-Before installing OrchestrAi, confirm Docker can see your GPU. From any PowerShell (Docker Desktop must be running):
+## Verify GPU passthrough
 
 ```powershell
 docker run --rm --gpus=all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 ```
 
-Expected: nvidia-smi output showing your GPU, driver version, and a "No running processes found." If you instead see "could not select device driver" or similar, fix that before proceeding. Common fixes:
-
-- Driver too old → update from NVIDIA
-- Docker Desktop using Hyper-V backend instead of WSL2 → Settings → General → "Use the WSL 2 based engine"
-- WSL2 distro without NVIDIA support → Docker Desktop installs this; if you've customized things, run `wsl --update`
+Expected: full nvidia-smi output showing your GPU. If not, fix this before going further (see "Common issues").
 
 ## Clone
 
@@ -56,7 +48,20 @@ git clone <orchestrai-repo-url> orchestrai
 cd orchestrai
 ```
 
-(In our repo layout, `orchestrai/` is a subfolder of `ai-local-dev/`. Same idea.)
+(In our repo layout, `orchestrai/` is a subfolder of `ai-local-dev/`.)
+
+## Master key
+
+The Hub encrypts secrets with a master key. Generate it once and protect it like an SSH key.
+
+```powershell
+# Generates 32 random bytes, base64-encodes, saves to a host file
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+[System.Convert]::ToBase64String($bytes) | Out-File -Encoding ASCII C:\me\.orchestrai\master_key
+```
+
+The compose file mounts this into the Hub. **Back it up somewhere safe (password manager, USB drive).** If you lose it, all stored secrets are unrecoverable.
 
 ## First run
 
@@ -65,58 +70,44 @@ docker compose up -d
 ```
 
 What happens:
-1. Pulls the `ollama/ollama` image (~600 MB first time)
-2. Builds the `orchestrator` image from `Dockerfile.orchestrator` (~200 MB)
-3. Builds the `sandbox` image from `Dockerfile.sandbox` (~600 MB — Python + Node + tooling)
-4. Starts all three services on the `orchestrai-net` network
+1. Pulls `ollama/ollama` image (~600 MB)
+2. Builds the `hub` image (~250 MB)
+3. Builds the `agent` image (~700 MB — toolchain + helper CLIs)
+4. Starts `hub`, `ollama`, and one `agent` on the `orchestrai-net` network
+5. The agent auto-registers with the Hub and starts polling for work
 
 First-time setup is 5-10 minutes mostly downloading. Subsequent starts are seconds.
 
 ## Pull the primary model
 
-Once the Ollama container is running, pull qwen2.5-coder:14b (the model chosen in our test-harness work):
-
 ```powershell
 docker compose exec ollama ollama pull qwen2.5-coder:14b
 ```
 
-This is a ~9 GB download. The model lives in the `ollama-models` named volume and persists across restarts. Pull additional models the same way if you want to experiment (see `docs/RECOMMENDATION.md` at the repo root for picks).
+~9 GB download. Lives in the `ollama-models` named volume; persists across restarts.
 
 ## Verify everything is working
 
 ```powershell
-# 1. Orchestrator is up
+# Hub healthy
 curl http://localhost:8080/api/health
+
+# Agent registered
+curl http://localhost:8080/api/agents
 ```
 
-Expected:
-```json
-{
-  "status": "ok",
-  "version": "0.1.0",
-  "ollama": {"reachable": true, "host": "http://ollama:11434"},
-  "db": {"schema_version": <N>, "ok": true},
-  "worker": {"running": true, "last_picked_at": null, "current_task_id": null}
-}
-```
+The Hub health response should show `ollama.reachable=true` and at least one agent listed.
 
 ```powershell
-# 2. Ollama can run the model
-docker compose exec ollama ollama run qwen2.5-coder:14b "write a one-line Python function that returns 42"
-```
-
-Expected: model loads (~5s first time) and prints a function. If the model loads to CPU instead of GPU, check `docker compose logs ollama` for the env var dump — you should see `OLLAMA_FLASH_ATTENTION:true OLLAMA_KV_CACHE_TYPE:q8_0`. If those aren't set, the `docker-compose.yml` got edited or the image is stale; rebuild.
-
-```powershell
-# 3. UI is reachable
+# Open the UI
 start http://localhost:8080
 ```
 
-Should open a browser tab with the OrchestrAi UI (empty board on first run).
+You should see the Agents screen with one connected agent in `idle` status.
 
-## docker-compose.yml (what you're actually running)
+## docker-compose.yml (reference)
 
-A reference copy lives in the repo root. The relevant moving parts:
+A full copy lives in the repo root. The key services:
 
 ```yaml
 services:
@@ -137,22 +128,40 @@ services:
     networks: [orchestrai-net]
     restart: unless-stopped
 
-  orchestrator:
+  hub:
     build:
       context: .
-      dockerfile: Dockerfile.orchestrator
-    container_name: orchestrai-orchestrator
+      dockerfile: Dockerfile.hub
+    container_name: orchestrai-hub
     depends_on: [ollama]
     environment:
       OLLAMA_URL: http://ollama:11434
       DATA_DIR: /data
+      MASTER_KEY_PATH: /run/secrets/master_key
     volumes:
-      - ./data:/data                                # SQLite + plan docs
-      - /var/run/docker.sock:/var/run/docker.sock   # spawn sandbox siblings
+      - ./data:/data
+      - /c/me/.orchestrai/master_key:/run/secrets/master_key:ro
     ports:
       - "8080:8080"
     networks: [orchestrai-net]
     restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: orchestrai-agent
+    depends_on: [hub]
+    environment:
+      ORCHESTRAI_HUB_URL: http://hub:8080
+      AGENT_NAME: "agent@${HOSTNAME:-dev}"
+    networks: [orchestrai-net]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4'
 
 volumes:
   ollama-models:
@@ -162,46 +171,82 @@ networks:
     driver: bridge
 ```
 
-Note the `sandbox` is *not* a service — it's only built (`docker compose build sandbox` once) and then the orchestrator runs sandbox containers on demand via the host Docker socket.
+Note: the `hub` does NOT mount the host Docker socket and the `agent` does NOT either. The boundary is real. The agent has no host access — it just talks to the Hub and runs its own subprocesses inside its container.
+
+## Adding more agents
+
+For more parallelism on the same machine, copy the `agent` service block with a different name:
+
+```yaml
+agent-2:
+  <<: *agent-template
+  container_name: orchestrai-agent-2
+  environment:
+    AGENT_NAME: "agent-2@${HOSTNAME:-dev}"
+```
+
+For a different machine: deploy `Dockerfile.agent` there, set `ORCHESTRAI_HUB_URL` to the network-reachable Hub address, ensure the Hub's port is reachable. The agent registers and starts working.
+
+## First project
+
+Open the UI → Projects → Add Project:
+
+```
+Name:        My First Project
+Slug:        my-first
+Description: A small FastAPI app to test OrchestrAi end-to-end.
+Context:
+  Stack: python 3.12, fastapi
+  Conventions: snake_case, pytest, ruff for linting
+```
+
+Then add a repo (Add Repo on the project detail screen) — give it a git URL the agent can clone.
+
+Then submit a goal — "Add a /health endpoint with tests" — and watch the board.
+
+## Adding your first secret
+
+UI → Vault → Add Secret:
+
+```
+Name:        GITHUB_TOKEN
+Value:       ghp_xxxxxxxx  (write-only; never readable again)
+Description: GitHub access for clone, push, gh CLI
+Scope:       Global
+```
+
+When agents take on tasks that declare `secrets_needed: ["GITHUB_TOKEN"]`, the Hub issues the value to that agent for the duration of the task. The audit log records every fetch.
 
 ## Common issues
 
 ### "could not select device driver" when starting ollama
 
-GPU passthrough not working. Walk through the "Verify GPU passthrough works" section above with the bare `nvidia/cuda` image. Fix the env first; OrchestrAi inherits whatever you've configured.
+GPU passthrough not working. Walk through "Verify GPU passthrough" with the bare `nvidia/cuda` image first.
 
-### Ollama starts but answers are slow / CPU bound
+### Hub starts but errors "master_key not found"
 
-Run `docker compose logs ollama | grep "inference compute"`. You should see `library=CUDA ... name=CUDA0 ... NVIDIA GeForce RTX 5080`. If you see `library=cpu` instead, GPU passthrough isn't connecting. Re-check the `deploy.resources.reservations.devices` block in compose; it needs `capabilities: [gpu]` exactly.
+The host path in `docker-compose.yml` doesn't match where you saved the key. Fix the mount path.
 
-### Orchestrator can't reach Ollama
+### Agent registers, then immediately marked `lost`
 
-From inside the orchestrator container: `curl http://ollama:11434/api/tags`. If that fails, the compose network isn't right. `docker compose down -v` and `docker compose up -d` to recreate.
-
-### WSL2 eating all available memory
-
-Symptom: laptop fan + sluggish Windows. Caused by WSL2 not releasing memory after model load. Check that your `.wslconfig` has `experimental.autoMemoryReclaim=gradual`. If still bad, `wsl --shutdown` and restart Docker Desktop.
-
-### "Cannot connect to the Docker daemon" from inside the orchestrator
-
-The host Docker socket mount isn't working. On Windows, `/var/run/docker.sock` is virtualized; Docker Desktop handles it correctly only when you've installed it (vs an older Docker Toolbox). Reinstall Docker Desktop if you're seeing this.
+Agent → Hub heartbeats are failing. Inside the agent: `curl http://hub:8080/api/health` should return 200. If not, check the compose network.
 
 ### Schema migration error on first start
 
-Orchestrator logs will name the failing migration. Usually means the `data/` volume has stale state from a previous version. For development, simplest fix: `docker compose down`, `rm -rf data/orchestrai.db*`, `docker compose up -d`. (Will lose any existing goals — fine for early development, NOT fine once you have real work in there.)
+If you're upgrading and a migration is unsafe, the Hub refuses to start. Logs name the failing migration. For a development reset: `docker compose down -v && rm -rf data && docker compose up -d` (loses all goals/tasks/history — fine early, bad later).
 
-### "Out of memory" loading a model
+### Out-of-memory loading model
 
-The model is too big for your VRAM. Check `docker compose logs ollama` for the VRAM math — Ollama prints the model's memory layout when loading. Switch to a smaller model or a smaller quant. See `docs/RECOMMENDATION.md` at the repo root for picks within 16 GB.
+Model too big for VRAM. Check `docker compose logs ollama` for the load-time memory layout. Switch to a smaller model or quant per `../README.md` / `docs/RECOMMENDATION.md` in the parent repo.
 
 ## Shutting down
 
 ```powershell
-docker compose down               # stop services, keep volumes (models, db)
-docker compose down -v            # also delete volumes (resets everything)
+docker compose down               # stop everything, keep volumes
+docker compose down -v            # also delete all data (panic button)
 ```
 
-`down -v` is the panic button — it nukes the local state. Useful during development, careful in real use.
+`down -v` is the reset button — wipes the DB, model cache, everything.
 
 ## Upgrading
 
@@ -211,20 +256,22 @@ docker compose build
 docker compose up -d
 ```
 
-Migrations apply automatically on startup. If a migration is unsafe (drop column, etc.), the orchestrator refuses to start and logs which migration. You then decide whether to rollback the code or apply the migration manually.
+Schema migrations run automatically on Hub startup. The Hub blocks API serving until they apply.
 
-## Building from source (developer mode)
+## Developer mode (running Hub on host, agent in container)
 
-For active development on the orchestrator code:
+For active development on the Hub code:
 
 ```powershell
-docker compose up -d ollama       # start ollama only
-# Run the orchestrator on the host (faster iteration)
+docker compose up -d ollama
 cd orchestrai
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+py -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn server.main:app --reload --host 0.0.0.0 --port 8080
+
+$env:OLLAMA_URL = "http://localhost:11434"
+$env:DATA_DIR = ".\data"
+$env:MASTER_KEY_PATH = "C:\me\.orchestrai\master_key"
+uvicorn hub.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
-In this mode you need to manually set `OLLAMA_URL=http://localhost:11434` and `DATA_DIR=./data`, and the orchestrator can't spawn sandboxes (no socket access). Tests that don't need sandboxes still run fine. Once you want full integration, go back to `docker compose up -d`.
+Then run an agent in a container pointed at the host: edit `docker-compose.dev.yml` to override `ORCHESTRAI_HUB_URL=http://host.docker.internal:8080` and start just the agent.

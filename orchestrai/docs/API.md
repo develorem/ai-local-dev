@@ -1,483 +1,421 @@
 # OrchestrAi — API
 
-REST + WebSocket interface served by the orchestrator on `:8080`. UI consumes it directly. Anyone could in principle write an alternative UI or a CLI against the same surface.
+REST + WebSocket served by the **Hub** on `:8080`. Two clients consume it:
+- **Browser UI** (anyone on `localhost`)
+- **Agents** (any number, talk over the compose network)
 
 ## Conventions
 
-- Base path: `/api/` (e.g. `/api/goals`)
-- Content type: `application/json` (UTF-8)
-- All IDs are ULIDs (26 chars, sortable strings)
-- All timestamps are ISO-8601 UTC strings
-- All bodies use `snake_case`
-- Status codes are standard: 2xx success, 4xx client error, 5xx server error
-- Error envelope:
-  ```json
-  {"error": {"code": "task_not_found", "message": "no task with id 01H...", "details": {}}}
-  ```
-- Listing endpoints support `?limit=` (default 50, max 500) and `?cursor=` (opaque, server-set). Responses include `{items: [...], next_cursor: "..."}`.
-- No auth in v1 — binds to `localhost` only. A reverse-proxy or auth shim could front it later.
+- Base path: `/api/`
+- JSON bodies (`application/json`, UTF-8)
+- IDs are ULIDs (26-char strings)
+- Timestamps are ISO-8601 UTC strings
+- `snake_case` everywhere
+- Listing endpoints: `?limit=` (default 50, max 500), `?cursor=`; returns `{items, next_cursor}`
+- Error envelope: `{"error": {"code": "...", "message": "...", "details": {}}}`
+- No auth in v1 — Hub binds to `localhost`. **Agents authenticate with the `lease_token`** issued on register; sent as `Authorization: Bearer <token>`.
 
 ## Resource map
 
 ```
-GET    /api/health                          → service liveness
-GET    /api/settings                        → all settings as key/value object
-PATCH  /api/settings                        → update one or more settings
+GET    /api/health
+GET    /api/settings
+PATCH  /api/settings
 
-POST   /api/goals                           → submit a new goal
-GET    /api/goals                           → list goals
-GET    /api/goals/{id}                      → goal detail
-PATCH  /api/goals/{id}                      → edit title/description/priority
-POST   /api/goals/{id}/abandon              → cancel goal + all open children
+POST   /api/projects
+GET    /api/projects
+GET    /api/projects/{id}
+PATCH  /api/projects/{id}
+POST   /api/projects/{id}/archive
 
-GET    /api/tasks                           → list tasks (filterable)
-GET    /api/tasks/{id}                      → task detail
-PATCH  /api/tasks/{id}                      → edit a task (only allowed in some states)
-POST   /api/tasks/{id}/cancel               → cancel a task (cascades to children)
-POST   /api/tasks/{id}/retry                → reset failed→ready, optionally edit
-POST   /api/tasks/{id}/notes                → append a note to a task
+POST   /api/projects/{id}/repos
+GET    /api/projects/{id}/repos
+GET    /api/repos/{id}
+PATCH  /api/repos/{id}
+DELETE /api/repos/{id}
 
-GET    /api/plans/{id}                      → plan detail (markdown + outline)
-GET    /api/goals/{id}/plans                → all plan versions for a goal
+POST   /api/goals
+GET    /api/goals
+GET    /api/goals/{id}
+PATCH  /api/goals/{id}
+POST   /api/goals/{id}/abandon
 
-GET    /api/questions                       → list questions (filter by status)
-GET    /api/questions/{id}                  → question detail
-POST   /api/questions/{id}/answer           → answer a pending question
+GET    /api/tasks
+GET    /api/tasks/{id}
+PATCH  /api/tasks/{id}
+POST   /api/tasks/{id}/cancel
+POST   /api/tasks/{id}/retry
+POST   /api/tasks/{id}/notes
 
-POST   /api/discussions                     → start a new discussion thread
-GET    /api/discussions                     → list discussions
-GET    /api/discussions/{id}                → discussion detail with all messages
-POST   /api/discussions/{id}/messages       → post a user message (triggers agent reply)
-POST   /api/discussions/{id}/close          → close the thread
+GET    /api/plans/{id}
+GET    /api/goals/{id}/plans
 
-GET    /api/proposed-actions                → list pending proposed actions
-POST   /api/proposed-actions/{id}/apply     → apply a proposed action
-POST   /api/proposed-actions/{id}/reject    → dismiss it
+GET    /api/questions
+GET    /api/questions/{id}
+POST   /api/questions/{id}/answer
 
-GET    /api/events                          → query historical events
-WS     /api/events                          → live event stream (broadcasts)
+POST   /api/discussions
+GET    /api/discussions
+GET    /api/discussions/{id}
+POST   /api/discussions/{id}/messages
+POST   /api/discussions/{id}/close
+
+GET    /api/proposed-actions
+POST   /api/proposed-actions/{id}/apply
+POST   /api/proposed-actions/{id}/reject
+
+GET    /api/events
+WS     /api/events
+
+# Agent endpoints (auth: Bearer lease_token from /register)
+POST   /api/agents/register
+POST   /api/agents/{id}/heartbeat
+POST   /api/agents/{id}/claim
+POST   /api/agents/{id}/release
+GET    /api/agents
+GET    /api/agents/{id}
+
+# Agent-only convenience endpoints
+POST   /api/tasks/{id}/events           # agent reports progress mid-task
+POST   /api/tasks/{id}/result           # agent submits final result
+GET    /api/projects/{id}/context       # agent fetches project context block
+GET    /api/repos/{id}                  # agent fetches repo metadata
+
+# Secrets (agent-only fetch; UI uses other endpoints to manage)
+GET    /api/secrets                     # UI: list (NEVER returns values)
+POST   /api/secrets                     # UI: create
+PATCH  /api/secrets/{name}              # UI: update value or metadata
+DELETE /api/secrets/{name}              # UI: delete
+GET    /api/secrets/{name}/accesses     # UI: audit log
+GET    /api/secrets/{name}/value        # AGENT-ONLY: fetch decrypted value
+                                        # requires task lease referencing this secret
 ```
 
 ---
 
-## Goals
+## Projects
 
-### `POST /api/goals`
+### `POST /api/projects`
 
-Submit a high-level goal. Creates a `goal` row in `submitted` status and a `plan` task in `ready` status.
-
-Request:
 ```json
 {
-  "title": "Add user authentication",
-  "description_md": "Add email/password signup + login...",
-  "priority": "normal"
+  "name": "Locate2u Microservices",
+  "slug": "locate2u-microservices",
+  "description_md": "...",
+  "context_md": "..."
 }
 ```
 
-Response `201`:
-```json
-{
-  "goal": {
-    "id": "01H...",
-    "title": "...",
-    "description_md": "...",
-    "status": "submitted",
-    "priority": "normal",
-    "created_at": "2026-05-27T...",
-    "updated_at": "2026-05-27T..."
-  },
-  "plan_task_id": "01H..."
-}
-```
+`context_md` is the agent-facing project description. Keep it terse — see `PROMPTS.md` "Token-efficient context".
 
-Events emitted: `goal.created`, `task.created`.
-
-### `GET /api/goals`
-
-Query params: `status` (csv), `priority` (csv), `limit`, `cursor`.
-
-Response `200`:
-```json
-{
-  "items": [
-    {
-      "id": "01H...",
-      "title": "...",
-      "status": "active",
-      "priority": "normal",
-      "task_counts": {"ready": 3, "in_progress": 1, "done": 5, "blocked_on_human": 1},
-      "open_question_count": 1,
-      "created_at": "...",
-      "updated_at": "..."
-    }
-  ],
-  "next_cursor": null
-}
-```
-
-### `GET /api/goals/{id}`
-
-Response `200` includes the goal + a summary of its plan(s) and tasks:
-```json
-{
-  "goal": { ... },
-  "plans": [{"id": "01H...", "version": 1, "status": "approved"}],
-  "tasks": [{"id": "01H...", "title": "...", "status": "done", "type": "implement"}, ...],
-  "discussions": [{"id": "01H...", "title": "...", "status": "open"}]
-}
-```
-
-### `POST /api/goals/{id}/abandon`
-
-Request body: optional `{ "reason": "..." }`.
-
-Effect: goal → `abandoned`. All non-terminal child tasks → `cancelled`. All pending questions on those tasks → `dismissed`. Open discussions linked to the goal → `closed`.
-
-Response `200`: `{ "ok": true, "tasks_cancelled": 3, "questions_dismissed": 1 }`.
-
----
-
-## Tasks
-
-### `GET /api/tasks`
-
-Query: `goal_id`, `status` (csv), `type` (csv), `priority` (csv), `limit`, `cursor`.
+### `GET /api/projects/{id}`
 
 ```json
 {
-  "items": [
-    {
-      "id": "01H...",
-      "goal_id": "01H...",
-      "type": "implement",
-      "title": "...",
-      "status": "ready",
-      "priority": "normal",
-      "depends_on": ["01H..."],
-      "attempt_count": 0,
-      "created_at": "...",
-      "started_at": null,
-      "finished_at": null
-    }
-  ],
-  "next_cursor": "..."
-}
-```
-
-### `GET /api/tasks/{id}`
-
-Includes full payload, result, notes, history (event roll-up), and open questions:
-```json
-{
-  "task": {
-    "id": "01H...",
-    "goal_id": "...",
-    "parent_task_id": null,
-    "type": "implement",
-    "title": "...",
-    "description_md": "...",
-    "status": "blocked_on_human",
-    "priority": "normal",
-    "depends_on": [],
-    "acceptance_criteria": [...],
-    "attempt_count": 1,
-    "max_attempts": 3,
-    "payload": {...},
-    "result": null,
-    "error": null,
-    "notes": "...",
-    "created_at": "...",
-    "started_at": "...",
-    "finished_at": null
-  },
-  "questions": [{"id": "01H...", "kind": "clarification", "prompt_md": "...", ...}],
-  "history": [
-    {"id": "...", "ts": "...", "kind": "task.created", "actor": "user", "detail": {}},
-    {"id": "...", "ts": "...", "kind": "task.status_changed", "actor": "system",
-     "detail": {"from": "ready", "to": "in_progress"}},
-    ...
-  ],
-  "children": [{"id": "01H...", "title": "...", "status": "ready"}, ...]
-}
-```
-
-### `PATCH /api/tasks/{id}`
-
-Allowed fields and the states in which each may be edited:
-- `title`, `description_md`, `priority`, `acceptance_criteria` — editable in any non-terminal state
-- `depends_on` — editable only in `created`, `ready`, `blocked_on_dep`, `failed`, `blocked_on_human`
-- `max_attempts` — editable any time
-- Anything else: returns `409 conflict` with `error.code = "field_not_editable_in_status"`
-
-### `POST /api/tasks/{id}/cancel`
-
-Transitions task → `cancelled`. Cascades to all descendants. Pending questions → `dismissed`.
-
-### `POST /api/tasks/{id}/retry`
-
-Only valid in `failed` state. Optional body to edit fields before retrying:
-```json
-{ "reset_attempts": true, "edits": {"description_md": "..."} }
-```
-Transitions back to `ready`.
-
-### `POST /api/tasks/{id}/notes`
-
-Append a human note onto the task. Useful for "I noticed X — keep this in mind."
-
-```json
-{ "note_md": "remember to use PostgreSQL JSONB not JSON" }
-```
-
----
-
-## Plans
-
-### `GET /api/plans/{id}`
-
-```json
-{
-  "plan": {
-    "id": "01H...",
-    "goal_id": "01H...",
-    "version": 1,
-    "content_md": "...full markdown plan...",
-    "task_outline": [
-      {
-        "title": "scaffold FastAPI app",
-        "type": "implement",
-        "depends_on_titles": [],
-        "acceptance_criteria": [...]
-      },
-      ...
-    ],
-    "status": "approved",
-    "approval_question_id": "01H...",
-    "created_at": "...",
-    "approved_at": "...",
-    "approval_notes": "Approve, but skip the deploy task for now"
+  "project": { ... },
+  "repos": [ { "id": "...", "name": "api-gateway", "role": "service", ... } ],
+  "stats": {
+    "goals_active": 2, "goals_done": 5,
+    "tasks_ready": 3, "tasks_in_progress": 1, "tasks_blocked_on_human": 1,
+    "open_questions": 1,
+    "open_discussions": 2
   }
 }
 ```
 
-### `GET /api/goals/{id}/plans`
+### `POST /api/projects/{id}/archive`
 
-All versions for a goal — useful when a revise task supersedes an earlier plan.
+Soft-archives — keeps all data but hides from default listings.
 
----
+## Repos
 
-## Questions
-
-### `GET /api/questions`
-
-Query: `status` (default `pending`), `task_id`, `kind`.
+### `POST /api/projects/{id}/repos`
 
 ```json
 {
-  "items": [
-    {
-      "id": "01H...",
-      "task_id": "01H...",
-      "kind": "clarification",
-      "prompt_md": "...",
-      "options": [{"label": "snake_case", "value": "snake_case"}, ...],
-      "status": "pending",
-      "created_at": "...",
-      "task_title": "Add endpoint /users",
-      "goal_title": "Add user auth"
-    }
-  ],
-  "next_cursor": null
+  "name": "api-gateway",
+  "role": "service",
+  "url": "git@github.com:org/api-gateway.git",
+  "default_branch": "main",
+  "description_md": "Routing + auth middleware"
 }
 ```
 
-### `POST /api/questions/{id}/answer`
+### `GET /api/repos/{id}`
 
 ```json
 {
-  "answer_md": "use snake_case for new endpoints",
-  "answer_value": "snake_case"     // only for choice/confirm kinds
+  "repo": { ... },
+  "active_branches": ["feature/auth-X", "feature/billing-Y"],
+                       // branches currently held by in-progress tasks
+  "recent_tasks": [...]
 }
 ```
 
-Effect: question → `answered`. If this was the last open question on its task, task transitions back to `ready` and is picked up on the next worker cycle. If kind is `plan_approval`:
-- `answer_value="approve"` → plan → `approved`, plan's `task_outline` is instantiated into real tasks, goal → `active`
-- `answer_value="approve_with_edits"` → enqueues a `revise` task with `answer_md` as the edit request, plan stays `draft` until revised
-- `answer_value="reject"` → plan → `rejected`, goal → `rejected`
-- `answer_value="discuss"` → opens a new discussion linked to the goal, plan stays `draft`
+## Goals
 
----
+(Same shape as the original spec, but now `project_id` is required on submit and returned everywhere.)
 
-## Discussions
-
-### `POST /api/discussions`
-
-Start a new discussion thread.
+### `POST /api/goals`
 
 ```json
 {
-  "title": "Should we use Redis for caching?",
-  "goal_id": "01H...",       // optional
-  "task_id": "01H...",       // optional; mutually exclusive with goal_id
-  "initial_message_md": "Optional first user message"
+  "project_id": "01H...",
+  "title": "Add user authentication",
+  "description_md": "...",
+  "priority": "normal"
 }
 ```
 
-If `initial_message_md` is present, the discussion is created with that message AND a `discuss` task is enqueued at `priority=critical`.
+Response includes the auto-created plan task ID.
 
-### `POST /api/discussions/{id}/messages`
+## Tasks
 
-Send a user message in an existing discussion.
+The schema gained `project_id`, `repo_id`, `branch_name`, `assigned_agent_id`, `lease_expires_at`. The API surface mirrors this. `GET /api/tasks/{id}` now includes the agent currently holding the task (if any) and its branch.
 
-```json
-{ "content_md": "..." }
-```
+### `GET /api/tasks` — filtering
 
-Effect: message inserted. If no `discuss` task is currently in-flight for this discussion, enqueue one at `priority=critical`. If one is already pending or in-progress, append the new message and let the existing task handle it.
+Query params: `project_id`, `goal_id`, `repo_id`, `branch_name`, `status`, `type`, `priority`, `assigned_agent_id`, `limit`, `cursor`.
 
-### `GET /api/discussions/{id}`
+### `GET /api/tasks/{id}`
 
 ```json
 {
-  "discussion": {
-    "id": "01H...",
-    "title": "...",
-    "goal_id": "01H...",
-    "task_id": null,
-    "status": "open",
-    "created_at": "..."
+  "task": {
+    "id": "01H...", "project_id": "01H...", "goal_id": "01H...",
+    "repo_id": "01H...", "branch_name": "feature/auth",
+    "type": "implement",
+    "status": "in_progress",
+    "assigned_agent_id": "01H...",
+    "lease_expires_at": "2026-05-27T...",
+    "attempt_count": 1, "max_attempts": 3,
+    ...
   },
-  "messages": [
-    {"id": "...", "role": "user", "content_md": "...", "created_at": "..."},
-    {"id": "...", "role": "agent", "content_md": "...", "created_at": "..."}
-  ],
-  "proposed_actions": [
-    {
-      "id": "01H...",
-      "action_type": "modify_task",
-      "human_summary": "Switch task-014 from in-memory cache to Redis",
-      "status": "proposed",
-      "payload": {"task_id": "01H...", "changes": {"description_md": "..."}},
-      "created_at": "..."
-    }
-  ]
+  "agent": {
+    "id": "01H...", "name": "agent@steven-desktop",
+    "status": "busy", "last_heartbeat_at": "..."
+  },
+  "questions": [ ... ],
+  "history": [ ... ],
+  "children": [ ... ]
 }
 ```
 
----
+## Agents
 
-## Proposed actions
+### `POST /api/agents/register`
 
-### `POST /api/proposed-actions/{id}/apply`
+Called by an agent process when it starts up. **No auth required** for this single endpoint.
 
-Applies the proposed mutation to the task graph atomically. Validates that the target entities still exist and the operation is valid in their current state (e.g. cannot `cancel_task` a task already `done`).
-
-Response `200`:
 ```json
 {
-  "ok": true,
-  "applied_at": "...",
-  "side_effects": [
-    {"kind": "task.created", "id": "01H..."},
-    {"kind": "task.modified", "id": "01H..."}
-  ]
+  "name": "agent@steven-desktop",
+  "host": "steven-desktop",
+  "version": "0.1.0",
+  "capabilities": ["gpu", "docker-cli", "linux", "node", "python"]
 }
 ```
 
-### `POST /api/proposed-actions/{id}/reject`
+Response:
+```json
+{
+  "agent_id": "01H...",
+  "lease_token": "<opaque 64-char random>",
+  "hub_version": "0.1.0",
+  "heartbeat_interval_sec": 10,
+  "lease_timeout_sec": 30
+}
+```
 
-Mark as `rejected`. No graph changes.
+All subsequent agent calls send `Authorization: Bearer <lease_token>`.
 
----
+### `POST /api/agents/{id}/heartbeat`
 
-## Events (history)
+```json
+{ "current_task_id": "01H..." }   // optional; null if idle
+```
 
-### `GET /api/events`
+Effect:
+- `agents.last_heartbeat_at = now`
+- If `current_task_id` is set: extend `tasks.lease_expires_at` to `now + lease_timeout_sec`
+- If the agent's lease_token has been invalidated (e.g. Hub restarted with new state) → 401, agent must re-register
 
-Query: `since` (ISO timestamp or event ID), `kind` (csv with prefix support, e.g. `task.,question.`), `goal_id`, `task_id`, `limit`, `cursor`.
+### `POST /api/agents/{id}/claim`
+
+Run the atomic claim query. Returns either a task envelope or `204 No Content`.
+
+```json
+{
+  "task": { ... full task row ... },
+  "project": {
+    "id": "01H...", "name": "...", "context_md": "..."
+  },
+  "repo": {
+    "id": "01H...", "url": "...", "default_branch": "main", "name": "..."
+  },
+  "branch_name": "feature/auth",
+  "lease_expires_at": "2026-05-27T..."
+}
+```
+
+The single response bundles everything the agent needs to start work without further round-trips. Project context comes inline. Secrets do NOT — agent must fetch those on demand and only when needed.
+
+### `POST /api/agents/{id}/release`
+
+Graceful shutdown. Body:
+
+```json
+{ "release_task": true }   // re-queue current task; default true
+```
+
+If `release_task=true` and the agent currently holds a task, that task transitions back to `ready` with a `released_by_agent` note. If false, the task is left in `in_progress` and will be reclaimed by the reaper after lease expiry.
+
+### `GET /api/agents`
+
+UI consumes. Returns list with current status and current task ID.
 
 ```json
 {
   "items": [
     {
-      "id": "01H...",
-      "ts": "...",
-      "kind": "task.status_changed",
-      "entity_type": "task",
-      "entity_id": "01H...",
-      "goal_id": "01H...",
-      "task_id": "01H...",
-      "actor": "system",
-      "detail": {"from": "ready", "to": "in_progress"}
+      "id": "01H...", "name": "agent@steven-desktop", "host": "steven-desktop",
+      "status": "busy", "last_heartbeat_at": "...",
+      "current_task_id": "01H...",
+      "registered_at": "..."
     }
-  ],
-  "next_cursor": "..."
+  ]
 }
 ```
 
-### `WS /api/events` (WebSocket)
+## Agent task reporting
 
-Real-time event stream. Push-only — the UI cannot send commands back through the WS.
+### `POST /api/tasks/{id}/events`
 
-#### Connection
-
-Client connects to `ws://localhost:8080/api/events`. Optionally with `?since=<event-id>` to replay any events since that ID (server buffers ~1000 recent events for this; older events must be paged via the REST endpoint).
-
-#### Server messages
-
-Each frame is a JSON event with the same shape as the REST `events` row:
+Progress events from the running agent. Hub broadcasts via WebSocket so the UI can show "agent is reading file X", "agent ran tests, exit 0", etc.
 
 ```json
-{"id": "01H...", "ts": "...", "kind": "task.status_changed", ...}
+{
+  "kind": "task.progress",
+  "detail": {
+    "step": "implementer_pass_2",
+    "summary": "Produced 47-line diff to src/routes/health.py",
+    "stats": {"prompt_tokens": 3421, "completion_tokens": 612, "gen_tps": 79.4}
+  }
+}
 ```
 
-Plus occasional control frames:
+Free-form `kind` (must start with `task.` namespace). Common ones documented inline in code.
+
+### `POST /api/tasks/{id}/result`
+
+Final result of the task. Marks the task as transitioning to `review` (then deterministic + LLM Reviewer runs Hub-side or in the same Agent) or directly to `done` / `failed` depending on the task type.
 
 ```json
-{"type": "control", "kind": "heartbeat", "ts": "..."}
-{"type": "control", "kind": "buffer_overflow", "missed_since": "01H...", "ts": "..."}
+{
+  "outcome": "success" | "fix_needed" | "failed" | "needs_human",
+  "result": {
+    "diff": "<unified diff>",
+    "commands_run": [
+      {"cmd": "pytest tests/test_health.py", "exit": 0, "stdout": "...", "stderr": ""}
+    ],
+    "branch_pushed": "feature/auth",
+    "commits": ["abc123: add /health endpoint"]
+  },
+  "questions": [],
+  "notes_md": "..."
+}
 ```
 
-`buffer_overflow` means the server dropped events because the client wasn't keeping up. Client should re-fetch the last N events via REST.
+## Context fetch
 
-## Event kinds
+### `GET /api/projects/{id}/context`
 
-Stable list, hierarchical dotted names. UI subscribes by prefix.
+Agent fetches the project context block when it starts a task in that project.
 
-| Kind | Emitted when |
-|---|---|
-| `goal.created` | new goal inserted |
-| `goal.updated` | goal field edited |
-| `goal.status_changed` | goal status transitioned |
-| `goal.abandoned` | user abandoned a goal |
-| `task.created` | new task inserted |
-| `task.updated` | task field edited (excluding status) |
-| `task.status_changed` | task status transitioned |
-| `task.started` | task moved to in_progress |
-| `task.completed` | task moved to done |
-| `task.failed` | task hit max_attempts |
-| `task.cancelled` | task cancelled |
-| `task.notes_appended` | note added |
-| `question.opened` | new question, task → blocked_on_human |
-| `question.answered` | user answered |
-| `question.dismissed` | task cancelled before answer |
-| `plan.created` | new plan version drafted |
-| `plan.approved` | plan approved, tasks created |
-| `plan.rejected` | plan rejected |
-| `plan.superseded` | replaced by a newer version |
-| `discussion.created` | new thread |
-| `discussion.message` | new message in a thread (role in detail) |
-| `discussion.closed` | thread closed |
-| `proposed_action.added` | agent suggested a graph change |
-| `proposed_action.applied` | user applied it |
-| `proposed_action.rejected` | user rejected it |
-| `worker.idle` | worker has no eligible tasks |
-| `worker.busy` | worker picked up a task |
-| `worker.error` | worker loop caught an unhandled exception |
-| `settings.updated` | runtime setting changed |
+```json
+{
+  "project_id": "01H...",
+  "name": "...",
+  "description_md": "...",
+  "context_md": "...",
+  "repos": [
+    {"name": "api-gateway", "role": "service", "description_md": "..."}
+  ]
+}
+```
 
-Detail payloads are documented inline in `server/events.py` (single source of truth) and tested.
+Bundled, single response, designed to fit in a single LLM context window. Per `PROMPTS.md`, the agent puts `context_md` and the repo list directly into the LLM system prompt.
+
+## Secrets
+
+### `GET /api/secrets` (UI)
+
+Lists secret NAMES and metadata. Never values.
+
+```json
+{
+  "items": [
+    {
+      "name": "GITHUB_TOKEN",
+      "description": "GitHub access for cloning + PR comments",
+      "scope": "global",
+      "created_at": "...", "updated_at": "...",
+      "last_accessed_at": "...", "access_count": 17
+    }
+  ]
+}
+```
+
+### `POST /api/secrets` (UI)
+
+```json
+{
+  "name": "GITHUB_TOKEN",
+  "value": "<plaintext — encrypted on write>",
+  "description": "...",
+  "scope": "global"
+}
+```
+
+Value field is write-only. It's never returned to the UI again.
+
+### `GET /api/secrets/{name}/value` (AGENT ONLY)
+
+Returns the decrypted value. Requires:
+- Valid Bearer lease_token
+- The agent holds an in-progress task whose payload or implementer prompt declares it needs this secret (Hub validates against task metadata)
+
+```json
+{
+  "name": "GITHUB_TOKEN",
+  "value": "<plaintext>",
+  "expires_in_sec": 60         // value should be discarded after use
+}
+```
+
+Every call logs to `secret_accesses` (issued | denied + reason).
+
+### `GET /api/secrets/{name}/accesses` (UI)
+
+Audit log for one secret. Returns last N issues with timestamps, agent IDs, task IDs.
+
+## Events
+
+### `GET /api/events` and `WS /api/events`
+
+Same as before. Event kinds now include `agent.*`:
+
+- `agent.registered`
+- `agent.heartbeat_missed`
+- `agent.lost`
+- `agent.released`
+- `task.claimed` (detail: agent_id)
+- `task.lease_extended`
+- `task.lease_expired_reclaimed`
+- `secret.accessed`
+- `secret.created` / `secret.updated` / `secret.deleted`
+- `project.created` / `project.updated`
+- `repo.created`
 
 ## Health
 
@@ -488,29 +426,12 @@ Detail payloads are documented inline in `server/events.py` (single source of tr
   "status": "ok",
   "version": "0.1.0",
   "ollama": {"reachable": true, "host": "http://ollama:11434"},
-  "db": {"schema_version": 3, "ok": true},
-  "worker": {"running": true, "last_picked_at": "...", "current_task_id": "01H..."}
+  "db": {"schema_version": <N>, "ok": true},
+  "agents": {
+    "registered": 1,
+    "connected": 1,
+    "busy": 1,
+    "lost": 0
+  }
 }
 ```
-
-503 if any subsystem fails.
-
-## Settings
-
-### `GET /api/settings`
-
-```json
-{ "model.primary": "qwen2.5-coder:14b", "inference.num_ctx": "16384", ... }
-```
-
-### `PATCH /api/settings`
-
-```json
-{ "model.primary": "deepseek-coder-v2:16b", "inference.num_ctx": "8192" }
-```
-
-Effect: settings updated, applied at next LLM call. Some changes (e.g. swapping the model) take effect immediately; no restart needed.
-
-## OpenAPI
-
-The FastAPI server auto-generates `GET /openapi.json` and `/docs` (Swagger UI). These are the live spec — this doc is the design intent.

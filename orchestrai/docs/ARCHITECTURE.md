@@ -1,305 +1,248 @@
 # OrchestrAi — Architecture
 
-The high-level design of OrchestrAi, a local-first agentic coding platform. This document defines the conceptual model, components, and data flows that every other doc in this folder elaborates.
-
-## What OrchestrAi is
-
-A long-running service that accepts large coding goals from a human, decomposes them into ordered tasks, executes them sequentially against a local LLM, asks the human questions asynchronously when blocked, accepts ongoing input (new goals, discussions, edits) while it works, and runs every piece of agent-produced code inside a disposable container so the host machine stays safe.
-
-Single-user, local, with a browser UI talking to a local API. Everything ships as `docker compose up`.
+The high-level design of OrchestrAi: a local-first agentic coding platform built around a long-running **Hub** service and one or more **Agent** workers that pull work and run it inside their own containers.
 
 ## Core thesis
 
-Local GPUs (specifically a single 16 GB RTX 5080) are single-threaded for serious model inference — one model, one request at a time. **OrchestrAi accepts that constraint and builds concurrency at the *work-graph* layer instead.** Tasks are the unit of concurrency. The LLM runs sequentially through the queue. When a task blocks on a human answer, the orchestrator switches to the next ready task. The human catches up to their inbox on their own time. The GPU is always doing useful work; the human is never the bottleneck.
+A single local GPU is single-threaded for serious model inference. Build concurrency at the *work-graph* layer instead of trying to parallelize inference. Make the agent disposable so the system survives crashes, upgrades, and (eventually) multi-machine scale-out. Source of truth lives in the Hub's database; everything else can be regenerated.
+
+## Two roles, two containers
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  OrchestrAi Hub                                            │
+│  - HTTP API + WebSocket                                    │
+│  - SQLite (persistent state)                               │
+│  - Browser UI                                              │
+│  - Secret vault (encrypted at rest)                        │
+│  - Reaper (clean up stale agent leases)                    │
+│  - Reads/writes only its own volumes                       │
+└──────────────┬─────────────────────────────────────────────┘
+               ▲ REST + WebSocket
+               │ (agent is the client; pull-based)
+               │
+┌──────────────┴─────────────────────────────────────────────┐
+│  OrchestrAi Agent  (disposable; one or more)               │
+│  - On boot: register with Hub, get a lease token           │
+│  - Loop: claim next task → run it → report results         │
+│  - Holds NO persistent state                               │
+│  - Has its own filesystem for git clones, scratch space    │
+│  - Talks to Ollama via the Hub's compose network           │
+└──────────────┬─────────────────────────────────────────────┘
+               ▲
+               │
+┌──────────────┴─────────────────────────────────────────────┐
+│  Ollama                                                    │
+│  - GPU passthrough, flash-attn, KV-quant                   │
+│  - Serves the chosen model on :11434                       │
+└────────────────────────────────────────────────────────────┘
+```
+
+Three containers in the default deployment: `hub`, `agent`, `ollama`. The agent can be stopped, restarted, or replaced any time. The Hub goes on serving.
 
 ## Unifying abstraction: everything is a task
 
+The same database holds work of every kind. Adding a feature, planning, approving, discussing, implementing, reviewing a PR, responding to a failed CI build — all are typed tasks the same worker loop processes.
+
 | Surface action | Internally |
 |---|---|
-| "Add a new feature" | enqueue a `plan` task |
-| "Plan ready for review" | open a `question` on that plan |
-| "Approved" (or "approve with edits") | answer the question → enqueue `implement` / `revise` tasks |
-| "Discuss this task with me" | enqueue a `discuss` task at `critical` priority |
-| Discovery during implementation | spawn child tasks; existing task → `blocked_on_dep` or continues |
+| "Add a new project" | create `project` row + initial setup tasks |
+| "Add a feature to project X" | enqueue a `plan` task scoped to project X |
+| "Plan ready for review" | a `question` of kind `plan_approval` |
+| "Approve plan" | answer the question → instantiate plan's task outline |
+| "Review this PR" | enqueue a `review_pr` task with the PR URL in payload |
+| "CI failed on branch X" | enqueue a `respond_to_ci_failure` task with logs in payload |
+| "Discuss something with me" | a `discuss` task at `critical` priority |
 
-There is no special path outside the queue. The same worker loop, the same database, the same UI handles all of them.
+No separate paths. Everything goes through the same queue.
 
-## Component diagram
+## Projects own repos
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser UI  (localhost:8080)                                   │
-│  - live task board (WebSocket-driven)                           │
-│  - inbox (open questions, proposed actions)                     │
-│  - goal/discussion compose                                      │
-│  - per-task detail: history, diffs, logs                        │
-└────────┬────────────────────────────────────────▲───────────────┘
-         │ REST (/api/*)                          │ WS (/api/events)
-         ▼                                        │
-┌─────────────────────────────────────────────────────────────────┐
-│  Orchestrator service  (FastAPI, one Python process)            │
-│  ┌────────────┐  ┌────────────┐  ┌──────────────────────────┐   │
-│  │ HTTP API   │  │ WebSocket  │  │ Worker loop (background) │   │
-│  │ routes/    │  │ broadcaster│  │ - pick next ready task   │   │
-│  └─────┬──────┘  └─────▲──────┘  │ - call LLM per task type │   │
-│        │               │         │ - apply state changes    │   │
-│        ▼               │         │ - emit events            │   │
-│  ┌───────────────────────────────┴────────────┐               │   │
-│  │ Domain layer (services, state machines)    │               │   │
-│  └───────────────────────────────────────────▲┘               │   │
-└───────────────────────────────────────────────┼────────────────┘
-                                                │
-                ┌────────────────────────┐      │
-                │ SQLite  (mounted vol)  │◄─────┘
-                │ tasks/goals/qs/events  │
-                └────────────────────────┘
+A project (the user's product/system) owns one or more git repos. A microservices product has many: `api-gateway`, `user-service`, `billing-service`, `infra`, `frontend`, etc. The Hub stores:
 
-         spawned per task / per goal
-         ┌──────────────────────────────────────┐
-         │  Sandbox containers  (Linux)         │
-         │  - /workspace mounted from host repo │
-         │  - run: pytest, npm, terraform, etc. │
-         └──────────────────────────────────────┘
-                            ▲
-                            │ docker exec (over host socket)
-                            │
-┌─────────────────────────────────────────────────────────────────┐
-│  Ollama container  (image: ollama/ollama)                       │
-│  - GPU passthrough (--gpus=all)                                 │
-│  - OLLAMA_FLASH_ATTENTION=1, OLLAMA_KV_CACHE_TYPE=q8_0          │
-│  - host:11434 inside the compose network                        │
-└─────────────────────────────────────────────────────────────────┘
-```
+- `projects` — one row per product, including project-level context (stack, conventions, key facts)
+- `project_repos` — many per project, each with a git URL, role tag, brief description
 
-Three top-level processes, all in Docker, all on the same compose network:
-1. **`ollama`** — model server (existing official image, GPU enabled)
-2. **`orchestrator`** — FastAPI + worker + UI + DB, the brain
-3. **`sandbox`** (template image) — spawned by the orchestrator as throwaway children for code execution
+Goals belong to a project. Tasks carry both the project and (if relevant) the specific repo + feature branch they operate on. Branch is the lock — see "Branch-as-lease" below.
 
-## Components in detail
+## Hub responsibilities
 
-### Orchestrator service
+Single Python process (FastAPI) containing:
 
-Single Python process containing:
+- **REST API + WebSocket** — UI and Agents consume both. Push-only WebSocket; agents always pull via REST.
+- **Worker support services** — task pickup arbiter (atomic claim), reaper (lease expiry), question routing, plan instantiation.
+- **Domain layer** — goal / task / question / discussion state machines. Pure Python.
+- **DB layer** — SQLite + migrations.
+- **Secret vault** — AES-256-GCM encryption, master key from a path outside the DB volume.
+- **Event emission** — every state change writes an event row + broadcasts on WebSocket.
 
-- **HTTP API** (FastAPI). REST surface. See [`API.md`](API.md).
-- **WebSocket broadcaster**. Pushes events to connected UIs as state changes. Strict push-only — no client-to-server commands over WS.
-- **Worker loop**. Background async task. Picks next ready task, runs the appropriate state transition, calls the LLM (via Ollama), executes side effects (file I/O via the sandbox, DB writes), emits events.
-- **Domain services**. The state-machine logic for goals, tasks, questions, discussions. Pure Python, testable in isolation.
-- **DB layer**. SQLite via SQLAlchemy or `sqlite3` + thin DAOs.
-- **LLM client**. Thin wrapper over Ollama's `/api/generate` (sync) and `/api/chat` (when tool-calling). Forks from the `ollama_client.py` we built for the test harness.
-- **Sandbox driver**. Spawns/execs/destroys sandbox containers via the mounted Docker socket.
+The Hub does **not** run LLM calls or shell commands itself. It coordinates; agents execute.
 
-### Database (SQLite)
+## Agent responsibilities
 
-Single file at `/data/orchestrai.db` (mounted volume). Why SQLite: zero-config, durable, fast enough for a single-user workload, ACID, easy to inspect with `sqlite3` CLI. Migrations are versioned SQL files; on startup the service applies any pending migrations. Schema details: [`SCHEMA.md`](SCHEMA.md).
-
-### Sandbox containers
-
-Spawned per goal (v1) or per task (v2). The host project repo is mounted at `/workspace`. The agent runs all shell commands inside this container — `pytest`, `npm install`, `terraform plan`, etc. — without ever executing on the host. Lifecycle, mount conventions, and security details: [`SANDBOX.md`](SANDBOX.md).
-
-### Ollama
-
-The official `ollama/ollama` image with GPU passthrough. Env vars set in `docker-compose.yml`:
-- `OLLAMA_FLASH_ATTENTION=1`
-- `OLLAMA_KV_CACHE_TYPE=q8_0`
-
-These are the proven VRAM-unlock config from the test harness work. Models live in a named volume so they persist across container restarts.
-
-### UI
-
-Static HTML + JS served by the orchestrator at `/`. No build step (or a tiny one — Vite or esbuild if we use Svelte). Talks to `/api/*` over fetch + WebSocket. Designed to feel desktop-like in a browser tab. Real desktop packaging (Tauri) is post-v1.
-
-## Key abstractions
-
-| Entity | Purpose |
-|---|---|
-| **Goal** | A high-level user-supplied objective. Has a status (planning/active/done/abandoned). Holds many tasks. |
-| **Task** | A unit of agent work. Typed (`plan`/`implement`/`review`/`discuss`/`revise`). Has a status, priority, dependencies, attempt count, acceptance criteria. |
-| **Plan** | Markdown document produced by a planner task. Approved or rejected via a Question. |
-| **Question** | An open ask from the agent to the human. Has prompt, optional structured options, status (pending/answered). Created and resolved by tasks. |
-| **Discussion** | A multi-turn chat thread between human and agent, optionally linked to a task or goal. May produce ProposedActions. |
-| **Message** | A single turn in a discussion. Role = user/agent. |
-| **ProposedAction** | A change to the task graph (create/modify/cancel task) suggested by a discussion, applied only when human clicks Apply. |
-| **Event** | Append-only audit log of every state transition. Drives the WebSocket stream. |
-
-Schema for each: [`SCHEMA.md`](SCHEMA.md).
-
-## Task lifecycle
+The Agent is a small loop:
 
 ```
-                               ┌─────────────┐
-            ┌──────────────────┤   created   │
-            │                  └──────┬──────┘
-            │                         │ deps satisfied
-            │                         ▼
-            │                  ┌─────────────┐
-   ┌────────┴────────┐         │    ready    │◄──────────┐
-   │ blocked_on_dep  │◄────────┴──────┬──────┘           │
-   └─────────────────┘                │ worker picks up  │
-                                      ▼                  │
-                               ┌─────────────┐           │
-                ┌──────────────┤ in_progress │           │
-                │              └──────┬──────┘           │
-                │                     │                  │
-                ▼                     ▼                  │
-       ┌────────────────┐      ┌────────────┐            │
-       │blocked_on_human│      │   review   │            │
-       └───────┬────────┘      └─────┬──────┘            │
-               │ answered            │ ok       fail     │
-               └──────────┐          │       ┌───────────┘
-                          │          │       │
-                          ▼          ▼       ▼
-                                ┌────────┐ ┌─────────┐
-                                │  done  │ │ failed  │
-                                └────────┘ └─────────┘
+1. On boot: POST /api/agents/register → {agent_id, lease_token}
+2. Loop:
+     a. POST /api/agents/{id}/claim
+        ← either a task (with project context + repo + branch in payload), or 204 no-content
+     b. If 204: sleep, heartbeat, retry
+     c. If task:
+        - Fetch project context, repo info, secrets (if needed) — all from Hub
+        - Clone the repo if not already on disk; checkout the branch
+        - Run the LLM call(s) for this task type (see PROMPTS.md)
+        - Execute resulting commands locally (subprocess in this same container)
+        - Commit + push results to origin (for code-producing tasks)
+        - Report progress events + final result to Hub
+3. Periodically: POST /api/agents/{id}/heartbeat (extends task lease)
+4. On clean shutdown: POST /api/agents/{id}/release
 ```
 
-Allowed transitions are enforced in the domain layer. Out-of-order transitions raise.
+Agent state lives entirely in the Hub. The Agent's container has only:
+- Git clones (will be re-cloned if the container is replaced)
+- An installed toolchain (Python, Node, git, common build tools — baked into the image)
+- A small helper CLI: `orchestrai-secrets`, `orchestrai-report`, `orchestrai-fetch-context`
+
+No DB, no logs that matter, no caches that can't be rebuilt.
+
+## Branch-as-lease
+
+Workspace contention is solved by git, not by Hub-level locks:
+
+- Each task that touches a repo declares `(repo_id, branch_name)` in its payload
+- The Hub's atomic claim refuses to assign a task to agent B if a different agent A already holds a task with the same `(repo_id, branch_name)` in-flight
+- Two tasks on the *same* repo but *different* branches → can run on different agents in parallel
+- Two tasks on the *same* branch → serialized, one agent at a time
+
+This works because agents push their changes to a shared origin. The next agent starts by cloning fresh from origin (or pulling) — it never inherits stale local state.
+
+## Task lifecycle (with leases)
+
+```
+                              ┌───────────┐
+                              │  created  │
+                              └─────┬─────┘
+                                    │
+                                    ▼
+                              ┌───────────┐
+              ┌───────────────┤   ready   │◄────────────┐
+              │  agent claims └─────┬─────┘             │
+              ▼                     │                   │
+       ┌─────────────┐              │                   │
+       │ in_progress │              │ lease expires     │
+       │  (leased)   │──────────────┘                   │
+       └─────┬───────┘                                  │
+             │                                          │
+   ┌─────────┴─────────┐                                │
+   ▼                   ▼                                │
+blocked_on_human  blocked_on_dep                        │
+   │                   │                                │
+   │ answered          │ deps met                       │
+   └──────────┬────────┘                                │
+              │                                         │
+              ▼                                         │
+        ┌──────────┐  ok    ┌──────────┐                │
+        │  review  │───────►│   done   │                │
+        └────┬─────┘        └──────────┘                │
+             │  fail                                    │
+             ├─► attempt < max → ready ─────────────────┘
+             └─► attempt = max → failed
+```
+
+A task in `in_progress` is always held by an agent under a time-bounded lease (default 30s). Heartbeats extend the lease. Missed heartbeats → Hub reclaims → task back to `ready` → next agent picks it up.
 
 ## Goal lifecycle
 
 ```
-   submitted ──► planning ──► active ──► done
-                    │            │
-                    ▼            ▼
-                rejected     abandoned
+submitted ─► planning ─► active ─► done
+                │           │
+                ▼           ▼
+            rejected    abandoned
 ```
 
-A goal stays in `planning` while its `plan` task is running and its approval Question is unanswered. Approval flips it to `active`, which makes its implementation tasks `ready`. The user can `abandon` an active goal at any time, which cancels all its open tasks.
+`planning` means the `plan` task is running or its approval question is open. Approval flips to `active`, which makes the implementation tasks eligible for claim.
 
-## Question lifecycle
+## Worker pickup (the atomic primitive)
 
-```
-   pending ──► answered
-       │
-       └──► dismissed (by orchestrator if task is cancelled)
-```
-
-A task in `blocked_on_human` has one or more `pending` questions. Answering all of them flips the task back to `ready`. The orchestrator's pickup logic will see it next loop iteration.
-
-## Worker loop (pseudocode)
-
-```python
-while not shutdown:
-    task = db.pick_next_task()    # highest priority, ready, deps satisfied
-    if task is None:
-        await wait_for_signal(timeout=5s)   # any event that could unblock
-        continue
-
-    db.transition(task, "in_progress")
-    emit_event("task.started", task)
-
-    try:
-        handler = handlers[task.type]      # planner / implementer / etc.
-        result = await handler.run(task)
-    except CancellationError:
-        db.transition(task, "ready")       # preempted by a higher-priority task
-        continue
-
-    apply_result(task, result)             # may create questions, child tasks,
-                                           # mark done, mark needs human, etc.
-```
-
-Pick order: `priority DESC, created_at ASC` among rows with `status='ready'` AND `all deps met`. Critical-priority tasks (discussions, cancellations) jump the queue — but only at task boundaries, never mid-LLM-call.
+The Hub never decides "agent X should run task Y." It exposes a `claim` endpoint that returns the next ready task using a single atomic SQL statement (see `SCHEMA.md`). Agents poll. The DB does the arbitration. This is the same pattern Sidekiq / Celery / etc. use, scaled down to a single SQLite.
 
 ## Data flow: user submits a goal
 
 ```
-1. User types goal in UI, clicks Submit
-2. UI: POST /api/goals { title, description }
-3. Server: INSERT goal (status=planning) + INSERT plan task (status=ready)
-   → event: goal.created, task.created
-4. WebSocket broadcasts both events
-5. UI renders the new goal with a "Planning queued" badge
+1. UI: POST /api/goals { project_id, title, description }
+2. Hub: INSERT goal (status=planning) + INSERT plan task (status=ready)
+3. Event: goal.created, task.created → broadcast on WebSocket
+4. UI re-renders board
 
-LATER, when worker loop picks up the plan task:
-6. Worker: handler.plan.run(task)
-7. LLM call: Planner prompt + goal info → structured plan
-8. Server: INSERT plan row, INSERT question (kind=plan_approval)
-   → task → blocked_on_human, event: task.blocked, question.opened
-9. UI inbox shows the new question
+LATER, an Agent claims the plan task:
+5. Agent: POST /api/agents/{id}/claim → receives the plan task
+6. Agent: fetches project context (one or two short markdown blocks)
+7. Agent: makes Planner LLM call (Ollama)
+8. Agent: POSTs intermediate events + the final plan markdown + task outline
+9. Hub: INSERTs plan row, INSERTs approval Question, transitions task to blocked_on_human
+10. Agent: releases the task (its work is done; waiting on human is not the agent's problem)
+11. UI inbox shows the new approval question
 ```
 
-## Data flow: user answers a question
+## Data flow: human answers a question
 
 ```
-1. UI: POST /api/questions/{id}/answer { answer_text, choice? }
-2. Server validates, INSERT answer onto question row
-   → event: question.answered
-3. If this was the last pending question on a task, transition task → ready
-   → event: task.ready
-4. If this was a plan_approval question:
-   - approved → goal → active, INSERT child tasks from plan
-   - rejected → goal → rejected, no children
-5. Worker loop wakes up via signal and picks up newly-ready tasks
+1. UI: POST /api/questions/{id}/answer
+2. Hub: INSERT answer, transition task back to ready (if all qs answered)
+3. Event: question.answered + task.status_changed
+4. Worker pickup query becomes satisfiable
+5. Next agent that polls claims the task and continues
 ```
 
-## Data flow: discussion with mutation
+## Data flow: PR review
 
 ```
-1. User opens chat on task-014, types "What if we use Redis?"
-2. UI: POST /api/discussions { task_id: 14 }  → discussion id
-3. UI: POST /api/discussions/{id}/messages { content }
-4. Server: INSERT message (role=user)
-   + INSERT discuss task (priority=critical, linked to discussion)
-5. Worker finishes current task, picks up discuss task
-6. LLM: Discusser prompt + discussion history + linked task context
-7. Output includes message + optional proposed_actions[]
-8. Server: INSERT message (role=agent), INSERT proposed_actions
-   → event: discussion.message, proposed_actions.added
-9. UI shows agent reply + an "Apply" button per proposed action
-10. User clicks Apply on one
-11. UI: POST /api/proposed-actions/{id}/apply
-12. Server: validates, mutates task graph (create/modify/cancel),
-    marks proposed_action applied
-    → events for every affected task
+1. User clicks "Review PR" on a task or in the project view, pastes PR URL
+   (or, in a more integrated v2, a webhook from GitHub creates this automatically)
+2. Hub: INSERT review_pr task, status=ready, payload={pr_url, ...}
+3. Agent claims it
+4. Agent: fetches PR diff (via gh CLI using injected GITHUB_TOKEN)
+5. Agent: LLM call in Reviewer mode against the diff
+6. Agent: posts comments / approval / request-changes via gh CLI
+7. Agent: reports task done with summary
 ```
 
-## Concurrency model
+The agent never holds the GitHub token in its LLM prompts — only in its subprocess env. See `SECRETS.md`.
 
-- One LLM call at any moment (single GPU)
-- One worker loop, single-threaded async
-- DB access is single-writer (SQLite WAL mode for concurrent reads from API thread)
-- WebSocket broadcasts are fanned out from a single emit point inside the worker/API
-- Sandbox containers run in parallel with the LLM and with each other (each task gets one; the orchestrator doesn't wait on a sandbox to spawn another task's LLM call) — but per-task work is still serial within that task
+## Concurrency & preemption
 
-## Preemption: discussions and cancellations
+- **At the Hub:** SQLite serializes writes; reads scale with WAL. One worker thread is enough for v1.
+- **At each Agent:** one task at a time per agent (single LLM stream). Multiple agents = parallel work across different branches/projects.
+- **Preemption:** `critical` tasks (e.g. a new discussion message) become claimable while a `normal` task is in-progress. The Agent currently working on the normal task finishes its current LLM call (typically ≤30s), heartbeats stop, the lease expires, the task goes back to `ready` (gracefully), and the agent's next claim grabs the critical one. We do not implement mid-LLM-call abort in v1.
 
-A `critical` priority task (e.g. a new discussion message) becomes eligible while a `normal` task is `in_progress`. The orchestrator does NOT kill the running LLM call. It waits for the current LLM call to complete (typically ≤30 seconds), saves intermediate state, transitions the running task back to `ready` (or to a recoverable substate), then picks up the critical task.
+## Failure modes
 
-This bounds the worst-case "user-waiting-for-agent-to-notice-me" latency to roughly one LLM call. We do not implement true mid-call abort in v1.
-
-## Failure modes and recovery
-
-| Failure | Behavior |
+| Failure | What happens |
 |---|---|
-| Orchestrator crash mid-task | On restart, `in_progress` tasks reset to `ready` with a `restart_recovery` note. Idempotent design assumed in handlers. |
-| LLM timeout / 5xx | Task transitions to `ready` with retry; after N retries → `needs_human`. |
-| Sandbox container crash | Same as LLM timeout — handler captures, retry. |
-| User-issued task cancel | Task → `cancelled`. Open children → cancelled cascade. Open questions on it → dismissed. |
-| Schema drift on new orchestrator version | Migrations apply on startup. Service does not start serving until DB is at the expected schema version. |
+| Agent crash mid-task | Lease expires → Hub reclaims → another agent picks up |
+| Hub crash | On restart, the reaper sweep cleans expired leases. Agents reconnect on next heartbeat / re-register if their lease_token is rejected. |
+| Network blip between Hub and Agent | Agent retries with backoff; lease expires if blip is long; agent re-registers and resumes |
+| Ollama down | Tasks fail with retry; after max_attempts → `needs_human` |
+| Schema migration | Hub refuses to serve until migrations applied; Agents see 503 and back off |
+| Bad LLM output | Per-mode validators reject; retry with feedback; failed twice → `needs_human` |
 
 ## Out of scope for v1
 
-Explicit non-goals for first version, to keep scope contained:
-
-- Multi-user / multi-machine
-- Auth (it's local, single user; UI binds to `localhost`)
-- Plugins / custom task types beyond the built-in five
-- Cloud-hosted LLM fallback (everything is local)
-- Per-task container snapshots (single shared sandbox per goal in v1)
-- Mid-call LLM abort (we wait for the call to finish)
-- Plan diff/merge across overlapping goals
-- True desktop app packaging (Tauri/Electron)
-- Multi-project workspaces (one repo at a time per OrchestrAi instance)
-
-Some of these are explicit v2 candidates documented in their respective sub-docs.
+- Multi-user / auth (single-user, localhost-bound)
+- Cloud-hosted LLM fallback (everything is local Ollama)
+- Multi-machine agent fleet (designed for; not deployed)
+- Mid-LLM-call abort
+- Cross-branch coordination (e.g. a task that synthesizes work from N branches)
+- Auto-cloning the user's local repo (must be on a git remote first)
+- Webhooks (GitHub PR opened, CI failed) — auto-converted to tasks in v2
 
 ## Cross-references
 
 - Data model: [`SCHEMA.md`](SCHEMA.md)
-- REST + WebSocket contract: [`API.md`](API.md)
+- API contract: [`API.md`](API.md)
 - LLM prompts per task type: [`PROMPTS.md`](PROMPTS.md)
-- Execution containers: [`SANDBOX.md`](SANDBOX.md)
+- Agent execution environment: [`EXECUTION.md`](EXECUTION.md)
+- Secret vault: [`SECRETS.md`](SECRETS.md)
+- UI layout: [`UI.md`](UI.md)
 - Getting it running: [`SETUP.md`](SETUP.md)
