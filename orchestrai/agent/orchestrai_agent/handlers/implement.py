@@ -1,0 +1,306 @@
+"""Implement handler — two-pass.
+
+Pass 1: tell the model the task + workspace tree, get back which files to
+read and which to write, plus verification commands.
+
+Pass 2: send the requested file contents back, get a unified diff.
+
+Apply the diff, run verification commands, submit the result.
+"""
+
+import logging
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from orchestrai_agent.config import config
+from orchestrai_agent.hub_client import HubClient
+from orchestrai_agent.ollama_client import OllamaClient
+from orchestrai_agent.response_parser import extract_json
+from orchestrai_agent.subprocess_util import run as run_subproc
+from orchestrai_agent.workspace import (
+    apply_diff, commit_all, ensure_workspace, list_tree, read_files, write_files,
+)
+
+log = logging.getLogger("orchestrai-agent.implement")
+
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+_PASS1_TPL = (PROMPTS_DIR / "implementer_pass1.md").read_text(encoding="utf-8")
+_PASS2_TPL = (PROMPTS_DIR / "implementer_pass2.md").read_text(encoding="utf-8")
+
+
+def _indent(text: str, prefix: str = "    ") -> str:
+    text = text or ""
+    return "\n".join(prefix + line for line in text.splitlines()) or (prefix + "(empty)")
+
+
+def _format_criteria(criteria: list) -> str:
+    if not criteria:
+        return "    (none)"
+    out = []
+    for c in criteria:
+        if isinstance(c, str):
+            out.append(f"  - {c}")
+        else:
+            out.append(f"  - {c}")
+    return "\n".join(out)
+
+
+def _render_pass1(project: dict, task: dict, workspace_tree: str) -> str:
+    return _PASS1_TPL.format(
+        project_name=project.get("name", "(unnamed)"),
+        project_description=project.get("description_md") or "(no description)",
+        project_context_indented=_indent(project.get("context_md") or "(no context)"),
+        task_title=task.get("title", "(no title)"),
+        task_description=task.get("description_md") or "(no description)",
+        repo_name="(no specific repo)",
+        branch_name=task.get("branch_name") or "(no branch)",
+        acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
+        notes_indented=_indent(task.get("notes") or "(none)"),
+        workspace_tree=workspace_tree,
+    )
+
+
+def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) -> str:
+    files_summary = ", ".join(
+        f"{f['path']} ({f.get('intent','')})"
+        for f in (pass1.get("files_to_write_or_modify") or [])
+    ) or "(none)"
+    if files_contents:
+        rendered = []
+        for path, content in files_contents.items():
+            rendered.append(f"--- {path} ---\n{content}")
+        files_block = "\n\n".join(rendered)
+    else:
+        files_block = "(no files to read — fresh workspace or no reads requested)"
+    return _PASS2_TPL.format(
+        project_name=project.get("name", "(unnamed)"),
+        project_description=project.get("description_md") or "(no description)",
+        project_context_indented=_indent(project.get("context_md") or "(no context)"),
+        task_title=task.get("title", "(no title)"),
+        task_description=task.get("description_md") or "(no description)",
+        repo_name="(no specific repo)",
+        branch_name=task.get("branch_name") or "(no branch)",
+        acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
+        files_to_write_summary=files_summary,
+        diff_plan_md=pass1.get("diff_plan_md") or "(no plan provided)",
+        files_contents=files_block,
+    )
+
+
+async def _ollama_generate(ollama: OllamaClient, prompt: str, num_predict: int) -> tuple[Optional[dict], dict]:
+    """Run an Ollama generate call. Returns (parsed_json_or_none, raw_result_dict)."""
+    started = time.perf_counter()
+    raw = await ollama.generate(
+        model=config.DEFAULT_MODEL,
+        prompt=prompt,
+        options={
+            "num_ctx": config.DEFAULT_NUM_CTX,
+            "temperature": 0,
+            "seed": 42,
+            "num_predict": num_predict,
+        },
+    )
+    wall = time.perf_counter() - started
+    response = raw.get("response", "")
+    parsed = extract_json(response)
+    raw["_wall_sec"] = wall
+    raw["_response_text"] = response
+    return parsed, raw
+
+
+def _gen_stats(raw: dict) -> dict:
+    eval_count = raw.get("eval_count") or 0
+    eval_duration = raw.get("eval_duration") or 0
+    tps = (eval_count / (eval_duration / 1e9)) if eval_count and eval_duration else 0.0
+    return {
+        "wall_sec": round(raw.get("_wall_sec", 0), 2),
+        "gen_tps": round(tps, 1),
+        "prompt_tokens": raw.get("prompt_eval_count"),
+        "completion_tokens": eval_count,
+    }
+
+
+async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict) -> None:
+    task = envelope["task"]
+    project = envelope.get("project") or {}
+    project_slug = project.get("slug") or "default"
+    task_id = task["id"]
+
+    # 1. Workspace
+    try:
+        workspace = await ensure_workspace(project_slug)
+    except Exception as e:
+        await hub.task_result(task_id, {
+            "outcome": "fix_needed",
+            "result": {"error": f"workspace setup failed: {e}"},
+            "notes_md": f"workspace setup failed: {e}",
+        })
+        return
+
+    tree = list_tree(workspace)
+    await hub.task_event(task_id, "workspace.ready", {
+        "path": str(workspace),
+        "tree_chars": len(tree),
+    })
+
+    # 2. Pass 1: planning
+    pass1_prompt = _render_pass1(project, task, tree)
+    await hub.task_event(task_id, "llm.call.started", {
+        "mode": "implementer_pass1",
+        "model": config.DEFAULT_MODEL,
+        "prompt_chars": len(pass1_prompt),
+    })
+    try:
+        pass1, raw1 = await _ollama_generate(ollama, pass1_prompt, num_predict=1024)
+    except Exception as e:
+        await hub.task_result(task_id, {
+            "outcome": "fix_needed",
+            "result": {"error": f"pass1 ollama call failed: {e}"},
+            "notes_md": f"pass1 ollama call failed: {e}",
+        })
+        return
+    await hub.task_event(task_id, "llm.call.completed", {"pass": 1, **_gen_stats(raw1)})
+
+    if not isinstance(pass1, dict):
+        await hub.task_result(task_id, {
+            "outcome": "fix_needed",
+            "result": {"reason": "pass1 invalid output",
+                       "raw_excerpt": (raw1.get("_response_text") or "")[:1500]},
+            "notes_md": "Implementer Pass 1 produced unparseable output.",
+        })
+        return
+
+    # If pass1 surfaced questions, route to human
+    if pass1.get("questions"):
+        await hub.task_result(task_id, {
+            "outcome": "needs_human",
+            "result": pass1,
+            "questions": pass1["questions"],
+            "notes_md": "Implementer Pass 1 raised clarifying questions.",
+        })
+        return
+
+    files_to_read = pass1.get("files_to_read") or []
+    files_to_write = pass1.get("files_to_write_or_modify") or []
+    verify_cmds_pass1 = pass1.get("commands_to_run_for_verification") or []
+
+    # 3. Read the requested files from the workspace
+    contents, missing = read_files(workspace, files_to_read)
+    if missing:
+        await hub.task_event(task_id, "implementer.files_missing", {"missing": missing})
+
+    # 4. Pass 2: generate the diff
+    pass2_prompt = _render_pass2(project, task, pass1, contents)
+    await hub.task_event(task_id, "llm.call.started", {
+        "mode": "implementer_pass2",
+        "model": config.DEFAULT_MODEL,
+        "prompt_chars": len(pass2_prompt),
+    })
+    try:
+        pass2, raw2 = await _ollama_generate(ollama, pass2_prompt, num_predict=4096)
+    except Exception as e:
+        await hub.task_result(task_id, {
+            "outcome": "fix_needed",
+            "result": {"error": f"pass2 ollama call failed: {e}"},
+            "notes_md": f"pass2 ollama call failed: {e}",
+        })
+        return
+    await hub.task_event(task_id, "llm.call.completed", {"pass": 2, **_gen_stats(raw2)})
+
+    if not isinstance(pass2, dict):
+        await hub.task_result(task_id, {
+            "outcome": "fix_needed",
+            "result": {"reason": "pass2 invalid output",
+                       "raw_excerpt": (raw2.get("_response_text") or "")[:1500]},
+            "notes_md": "Implementer Pass 2 produced unparseable output.",
+        })
+        return
+
+    files = pass2.get("files") or []
+    diff = pass2.get("diff") or ""
+    if not files and not diff.strip():
+        await hub.task_result(task_id, {
+            "outcome": "fix_needed",
+            "result": {"reason": "pass2 has neither files nor diff",
+                       "raw_excerpt": (raw2.get("_response_text") or "")[:1500]},
+            "notes_md": "Implementer Pass 2 produced neither files nor a diff.",
+        })
+        return
+
+    commands = pass2.get("commands_to_run") or verify_cmds_pass1
+
+    # 5a. Apply full-content files first (preferred path for new/rewritten files)
+    written_paths: list[str] = []
+    if files:
+        ok, err, written_paths = await write_files(workspace, files)
+        if not ok:
+            await hub.task_event(task_id, "implementer.files_write_failed", {"error": err[:500]})
+            await hub.task_result(task_id, {
+                "outcome": "fix_needed",
+                "result": {"reason": "files_write_failed", "error": err,
+                           "files": [f.get("path") for f in files]},
+                "notes_md": f"Could not write files:\n{err[:500]}",
+            })
+            return
+        await hub.task_event(task_id, "implementer.files_written", {"paths": written_paths})
+
+    # 5b. Apply diff for modifications (optional)
+    if diff.strip():
+        ok, err = await apply_diff(workspace, diff)
+        if not ok:
+            await hub.task_event(task_id, "implementer.diff_apply_failed", {"error": err[:500]})
+            await hub.task_result(task_id, {
+                "outcome": "fix_needed",
+                "result": {"reason": "diff_apply_failed", "error": err, "diff": diff,
+                           "files_written": written_paths},
+                "notes_md": f"Diff did not apply cleanly:\n{err[:500]}",
+            })
+            return
+
+    # 6. Auto-commit
+    commit_sha = await commit_all(workspace, f"orchestrai: {task.get('title','task')}")
+    await hub.task_event(task_id, "workspace.commit", {"sha": commit_sha or "(empty)"})
+
+    # 7. Run verification commands
+    cmd_results = []
+    all_passed = True
+    for cmd in commands:
+        if not isinstance(cmd, str):
+            continue
+        await hub.task_event(task_id, "subprocess.started", {"cmd": cmd})
+        res = await run_subproc(cmd, cwd=str(workspace), timeout_sec=120)
+        cmd_results.append({
+            "cmd": cmd,
+            "exit": res.exit_code,
+            "stdout": res.stdout[-2000:],
+            "stderr": res.stderr[-2000:],
+            "wall_sec": round(res.wall_sec, 2),
+            "timed_out": res.timed_out,
+        })
+        await hub.task_event(task_id, "subprocess.completed", {
+            "cmd": cmd, "exit": res.exit_code, "wall_sec": round(res.wall_sec, 2),
+        })
+        if res.exit_code != 0:
+            all_passed = False
+
+    # 8. Result
+    outcome = "success" if all_passed else "fix_needed"
+    result = {
+        "diff": diff,
+        "files_written": written_paths,
+        "commit_sha": commit_sha,
+        "commands_run": cmd_results,
+        "files_modified": [f.get("path") for f in files_to_write],
+        "notes": pass2.get("notes_md"),
+    }
+    notes_md = pass2.get("notes_md") or ""
+    if not all_passed:
+        failed = [c["cmd"] for c in cmd_results if c["exit"] != 0]
+        notes_md = (notes_md + "\n\nVerification commands failed: " + ", ".join(failed)).strip()
+
+    await hub.task_result(task_id, {
+        "outcome": outcome,
+        "result": result,
+        "notes_md": notes_md or None,
+    })

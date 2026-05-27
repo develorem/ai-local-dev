@@ -403,8 +403,13 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
     # Persist any free-form questions submitted with the result (other than plan_approval handled above)
     if questions and row["type"] != "plan":
         for q in questions:
-            _insert_question(conn, task_id, q.get("kind", "clarification"),
-                             q.get("prompt_md", ""), q.get("options", []))
+            # Be tolerant: LLM sometimes returns strings instead of {kind, prompt_md} dicts
+            if isinstance(q, str):
+                _insert_question(conn, task_id, "clarification", q, [])
+            elif isinstance(q, dict):
+                _insert_question(conn, task_id, q.get("kind", "clarification"),
+                                 q.get("prompt_md", ""), q.get("options", []))
+            # else: silently skip malformed entries
         if new_status == "done":
             new_status = "blocked_on_human"
 
@@ -436,9 +441,87 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
          task_id=task_id, agent_id=row["assigned_agent_id"],
          actor=f"agent:{row['assigned_agent_id']}" if row['assigned_agent_id'] else 'system',
          detail={"from": row["status"], "to": new_status, "outcome": outcome})
+
+    # Dep cascade: if THIS task just became 'done', any blocked_on_dep task
+    # whose deps are now all done should transition to 'ready'.
+    if new_status == "done":
+        _cascade_dep_unblock(conn, task_id)
+
+    # Goal completion: if all of a goal's tasks are terminal-success, mark goal done.
+    if new_status in ("done", "cancelled") and row["goal_id"]:
+        _maybe_complete_goal(conn, row["goal_id"])
+
     conn.commit()
 
     return {"ok": True, "status": new_status, "plan_id": plan_id}
+
+
+def _cascade_dep_unblock(conn, completed_task_id: str) -> None:
+    """For every blocked_on_dep task that depends on `completed_task_id`, recheck deps."""
+    rows = conn.execute(
+        """
+        SELECT t.id, t.project_id, t.goal_id, t.depends_on
+        FROM tasks t
+        WHERE t.status = 'blocked_on_dep'
+          AND EXISTS (
+            SELECT 1 FROM json_each(t.depends_on) AS dep WHERE dep.value = ?
+          )
+        """,
+        (completed_task_id,),
+    ).fetchall()
+    for r in rows:
+        deps = json_loads(r["depends_on"], [])
+        if not deps:
+            continue
+        placeholders = ",".join("?" * len(deps))
+        unmet = conn.execute(
+            f"SELECT COUNT(*) AS n FROM tasks WHERE id IN ({placeholders}) AND status != 'done'",
+            deps,
+        ).fetchone()
+        if unmet["n"] == 0:
+            conn.execute(
+                "UPDATE tasks SET status='ready' WHERE id = ?",
+                (r["id"],),
+            )
+            emit(conn, "task.status_changed", "task", r["id"],
+                 project_id=r["project_id"], goal_id=r["goal_id"],
+                 task_id=r["id"], actor="system",
+                 detail={"from": "blocked_on_dep", "to": "ready",
+                         "reason": "all deps satisfied"})
+
+
+def _maybe_complete_goal(conn, goal_id: str) -> None:
+    """If every task in the goal is in a terminal state and at least one is done,
+    move the goal to `done`."""
+    g = conn.execute(
+        "SELECT id, project_id, status FROM goals WHERE id = ?",
+        (goal_id,),
+    ).fetchone()
+    if not g or g["status"] in ("done", "abandoned", "rejected"):
+        return
+    counts = conn.execute(
+        """
+        SELECT
+          SUM(CASE WHEN status IN ('done','cancelled') THEN 1 ELSE 0 END) AS terminal,
+          SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done_n,
+          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_n,
+          COUNT(*) AS total
+        FROM tasks WHERE goal_id = ?
+        """,
+        (goal_id,),
+    ).fetchone()
+    if (counts["total"] or 0) == 0:
+        return
+    if counts["failed_n"] and int(counts["failed_n"]) > 0:
+        return  # don't auto-complete if any task failed
+    if int(counts["terminal"] or 0) == int(counts["total"]) and int(counts["done_n"] or 0) > 0:
+        conn.execute(
+            "UPDATE goals SET status='done', updated_at=? WHERE id = ?",
+            (utcnow_iso(), goal_id),
+        )
+        emit(conn, "goal.status_changed", "goal", goal_id,
+             project_id=g["project_id"], goal_id=goal_id, actor="system",
+             detail={"to": "done", "reason": "all tasks complete"})
 
 
 def _insert_question(conn, task_id, kind, prompt_md, options) -> str:

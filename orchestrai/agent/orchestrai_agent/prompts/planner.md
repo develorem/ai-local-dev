@@ -17,11 +17,16 @@ GUIDELINES:
 - Each task should be COMPLETABLE in one focused session of work
   (roughly: one diff, one set of tests, one verification).
 - Order tasks by dependency. Earlier tasks unblock later ones.
-- Every task must have explicit, machine-checkable acceptance criteria
-  (e.g. "tests/test_health.py passes", "GET /health returns 200").
+- Every task must have explicit acceptance criteria. **STRONGLY PREFER structured criteria** that the orchestrator can verify deterministically without an LLM:
+    - `{{"kind": "test", "cmd": "<shell command>", "expect_exit": 0}}` — runs the command in the workspace, passes if exit code matches
+    - `{{"kind": "file_exists", "path": "<relative/path>"}}` — passes if file exists
+  Use a plain string ONLY for criteria a machine cannot easily verify (e.g. "code follows the project's style conventions").
 - Prefer 5-12 tasks. Fewer = too coarse; more = over-decomposed.
 - `type` MUST be EXACTLY ONE OF: "implement" or "review". No other values.
-  Use "implement" for code-writing tasks and "review" for verification-only tasks.
+  Use "implement" for code-writing tasks and "review" for verification-only tasks
+  (whose sole job is to run a check, not write code).
+- For "review" tasks: ALL acceptance criteria MUST be structured (kind=test / file_exists),
+  never plain strings — otherwise the review cannot be auto-completed.
 - If the goal is genuinely ambiguous, INCLUDE clarifying questions in `questions[]`
   and OMIT the `plan_md` field. Do NOT proceed to write tasks if a question is fundamental.
 
@@ -37,7 +42,9 @@ OUTPUT — exactly ONE fenced ```json block matching this shape:
       "description_md": "<2-6 sentences of what + why>",
       "depends_on_titles": ["<title of an earlier task in this list>"],
       "acceptance_criteria": [
-        "<plain-string criterion>"
+        {{"kind": "test", "cmd": "pytest test_hello.py -q", "expect_exit": 0}},
+        {{"kind": "file_exists", "path": "hello.py"}},
+        "<plain-string criterion only when no machine check is possible>"
       ],
       "priority": "normal"
     }}

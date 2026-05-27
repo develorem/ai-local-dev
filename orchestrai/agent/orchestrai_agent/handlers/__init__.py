@@ -2,9 +2,13 @@
 and submits a result via hub.task_result(...)."""
 
 from orchestrai_agent.handlers.plan import handle_plan
+from orchestrai_agent.handlers.implement import handle_implement
+from orchestrai_agent.handlers.review import handle_review
 
 HANDLERS = {
     "plan": handle_plan,
+    "implement": handle_implement,
+    "review": handle_review,
 }
 
 
