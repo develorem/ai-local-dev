@@ -659,6 +659,80 @@ route('/tasks/:task_id', async ({ task_id }) => {
   }
   content.appendChild(el('div', { class: 'card' }, kvs));
 
+  // Action row — what the human can do with this task right now
+  const isTerminal = ['done', 'failed', 'cancelled'].includes(t.status);
+  const isFailed = t.status === 'failed';
+  const actions = el('div', { class: 'card', style: 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;' });
+  actions.appendChild(el('span', { class: 'muted', style: 'margin-right:8px;' }, 'Actions:'));
+
+  if (isFailed) {
+    actions.appendChild(el('button', {
+      onClick: async () => {
+        if (!confirm(`Retry "${t.title}"?\nResets attempts to 0 and re-queues for the agent.`)) return;
+        try {
+          await api(`/tasks/${t.id}/retry`, { method: 'POST', body: {} });
+          toast('Task re-queued', 'success');
+          render();
+        } catch (err) { toast(`Retry failed: ${err.message}`, 'error', 6000); }
+      }
+    }, 'Retry'));
+  }
+
+  if (!isTerminal) {
+    actions.appendChild(el('button', { class: 'secondary',
+      onClick: async () => {
+        if (!confirm(`Cancel "${t.title}"?\nAlso cancels any descendant tasks. This is permanent.`)) return;
+        try {
+          await api(`/tasks/${t.id}/cancel`, { method: 'POST', body: {} });
+          toast('Task cancelled', 'success');
+          render();
+        } catch (err) { toast(`Cancel failed: ${err.message}`, 'error', 6000); }
+      }}, 'Cancel'));
+  }
+
+  actions.appendChild(el('button', { class: 'secondary',
+    onClick: async () => {
+      const note = prompt('Add a note to this task (visible to the agent on next attempt):');
+      if (!note) return;
+      try {
+        await api(`/tasks/${t.id}/notes`, { method: 'POST', body: { note_md: note } });
+        toast('Note added', 'success');
+        render();
+      } catch (err) { toast(`Add note failed: ${err.message}`, 'error', 6000); }
+    }}, 'Add note'));
+
+  content.appendChild(actions);
+
+  // Failure / error surface — show prominently when status=failed so the user
+  // doesn't have to dig through history to understand what went wrong.
+  if (isFailed || (t.error && t.error.trim())) {
+    content.appendChild(el('h2', { style: 'color:var(--red);' }, 'Failure details'));
+    const errCard = el('div', { class: 'card', style: 'border-color:var(--red);' });
+    if (t.error && t.error.trim()) {
+      errCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px;' }, 'error'));
+      errCard.appendChild(el('pre', {
+        style: 'white-space:pre-wrap;font-family:monospace;font-size:12px;margin:4px 0;'
+      }, t.error));
+    }
+    if (t.result && Object.keys(t.result).length > 0) {
+      errCard.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:8px;' }, 'last result'));
+      errCard.appendChild(el('pre', {
+        style: 'white-space:pre-wrap;font-family:monospace;font-size:11px;margin:4px 0;' +
+               'max-height:300px;overflow:auto;background:var(--bg);padding:8px;border-radius:4px;'
+      }, JSON.stringify(t.result, null, 2)));
+    }
+    content.appendChild(errCard);
+  }
+
+  // Accumulated notes (from agent retries + human additions) — always shown if present
+  if (t.notes && t.notes.trim()) {
+    content.appendChild(el('h2', {}, 'Notes'));
+    content.appendChild(el('div', { class: 'card' },
+      el('pre', {
+        style: 'white-space:pre-wrap;font-family:monospace;font-size:12px;margin:0;'
+      }, t.notes)));
+  }
+
   if (t.description_md) {
     content.appendChild(el('h2', {}, 'Description'));
     content.appendChild(el('div', { class: 'card' },
