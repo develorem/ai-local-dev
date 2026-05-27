@@ -4,6 +4,28 @@ const API = '/api';
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// ---- Toast notifications -------------------------------------------------
+function toast(msg, kind = 'info', ttlMs = 3500) {
+  let host = document.getElementById('toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-host';
+    host.style.cssText = 'position:fixed;top:60px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  const bg = kind === 'error' ? '#5a1f1f' : kind === 'success' ? '#1f4a26' : '#1f3a52';
+  const border = kind === 'error' ? '#f85149' : kind === 'success' ? '#3fb950' : '#4f9eff';
+  t.style.cssText = `background:${bg};border:1px solid ${border};color:#fff;padding:10px 14px;border-radius:6px;` +
+                    `min-width:240px;max-width:420px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:13px;` +
+                    `animation:fadeIn 0.2s;cursor:pointer;`;
+  t.textContent = msg;
+  t.onclick = () => t.remove();
+  host.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; }, ttlMs - 300);
+  setTimeout(() => t.remove(), ttlMs);
+}
+
 const el = (tag, attrs = {}, ...children) => {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -92,7 +114,42 @@ async function refreshNotifications() {
   try {
     const data = await api('/questions?status=pending&limit=200');
     $('#notif-count').textContent = data.items.length;
+    window._pendingQuestions = data.items;
   } catch {}
+}
+
+// ---- Notification dropdown -----------------------------------------------
+function closeNotifDropdown() {
+  const d = document.getElementById('notif-dropdown');
+  if (d) d.remove();
+}
+async function toggleNotifDropdown() {
+  if (document.getElementById('notif-dropdown')) { closeNotifDropdown(); return; }
+  await refreshNotifications();
+  const items = window._pendingQuestions || [];
+  const dd = document.createElement('div');
+  dd.id = 'notif-dropdown';
+  dd.style.cssText = 'position:fixed;top:48px;right:24px;width:380px;max-height:60vh;' +
+    'overflow-y:auto;background:var(--surface);border:1px solid var(--border);' +
+    'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.4);z-index:9000;padding:8px;';
+  dd.onclick = (e) => e.stopPropagation();
+  if (items.length === 0) {
+    dd.appendChild(el('p', { class: 'muted', style: 'padding:8px;margin:0;' }, 'No pending questions.'));
+  } else {
+    items.forEach(q => {
+      const row = el('div', { style: 'padding:8px;border-bottom:1px solid var(--border);cursor:pointer;',
+        onClick: () => {
+          location.hash = `#/tasks/${q.task_id}`;
+          closeNotifDropdown();
+        }},
+        el('div', { style: 'font-size:11px;color:var(--muted);text-transform:uppercase;' }, q.kind),
+        el('div', { style: 'margin:4px 0;font-size:13px;' }, q.prompt_md.substring(0, 200)),
+        q.task_title ? el('div', { class: 'muted', style: 'font-size:11px;' },
+          `${q.task_title}${q.goal_title ? ' · ' + q.goal_title : ''}`) : null);
+      dd.appendChild(row);
+    });
+  }
+  document.body.appendChild(dd);
 }
 
 // -------- Routing -------------------------------------------------------
@@ -282,29 +339,54 @@ async function refreshProjects() {
 }
 
 function openProjectModal() {
-  const modal = el('div', { class: 'card', style: 'max-width:600px;margin:24px auto;' },
+  // Render the form INLINE above the list rather than replacing the page —
+  // gives the user context + a fast path back if they cancel.
+  let host = document.getElementById('inline-form-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'inline-form-host';
+    const list = $('#projects-list');
+    if (list && list.parentNode) list.parentNode.insertBefore(host, list);
+    else $('#content').appendChild(host);
+  }
+  host.innerHTML = '';
+  const card = el('div', { class: 'card', style: 'max-width:680px;' },
     el('h2', {}, 'New Project'),
     el('form', { class: 'form-grid', onSubmit: async (e) => {
       e.preventDefault();
       const f = e.target;
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Creating…';
       try {
-        await api('/projects', { method: 'POST', body: {
-          name: f.name.value, slug: f.slug.value,
-          description_md: f.description_md.value, context_md: f.context_md.value,
+        const result = await api('/projects', { method: 'POST', body: {
+          name: f.name.value.trim(),
+          slug: f.slug.value.trim(),
+          description_md: f.description_md.value,
+          context_md: f.context_md.value,
         }});
-        location.hash = '#/projects';
+        toast(`Project "${result.name}" created`, 'success');
+        host.innerHTML = '';
         await refreshProjects();
-      } catch (err) { alert(err.message); }
+      } catch (err) {
+        toast(`Create failed: ${err.message}`, 'error', 6000);
+        btn.disabled = false; btn.textContent = 'Create';
+      }
     }},
       el('label', {}, 'Name', el('input', { name: 'name', type: 'text', required: true })),
       el('label', {}, 'Slug', el('input', { name: 'slug', type: 'text', required: true,
-                                              pattern: '[a-z0-9-]+' })),
+                                              pattern: '[a-z0-9-]+',
+                                              placeholder: 'lowercase-with-dashes' })),
       el('label', {}, 'Description', el('textarea', { name: 'description_md' })),
-      el('label', {}, el('span', {}, 'Context (terse bullets — see PROMPTS.md token-efficient format)'),
-        el('textarea', { name: 'context_md', placeholder: 'Stack: python 3.12, fastapi\nConventions: snake_case, tests/ next to source' })),
-      el('button', { type: 'submit' }, 'Create')));
-  $('#content').innerHTML = '';
-  $('#content').appendChild(modal);
+      el('label', {},
+        el('span', {}, 'Context (terse bullets — token-efficient format)'),
+        el('textarea', { name: 'context_md',
+          placeholder: 'Stack: python 3.12, fastapi\nConventions: snake_case, pytest, tests/ next to source' })),
+      el('div', { style: 'display:flex;gap:8px;' },
+        el('button', { type: 'submit' }, 'Create'),
+        el('button', { type: 'button', class: 'secondary',
+          onClick: () => { host.innerHTML = ''; } }, 'Cancel'))));
+  host.appendChild(card);
+  card.querySelector('input[name=name]').focus();
 }
 
 route('/projects/:project_id', async ({ project_id }) => {
@@ -325,7 +407,30 @@ route('/projects/:project_id', async ({ project_id }) => {
       el('pre', { style: 'white-space:pre-wrap;font-family:monospace;font-size:12px;margin:0;' }, p.context_md)));
   }
 
-  content.appendChild(el('h2', {}, `Repos (${data.repos.length})`));
+  // ---- Goals (the most important entry point — keep at top) -----------
+  content.appendChild(el('h2', {}, `Goals (${data.goals.length})`,
+    el('button', { style: 'margin-left:12px;',
+      onClick: () => openGoalForm(project_id) }, '+ Add Goal')));
+  content.appendChild(el('div', { id: 'goal-form-host' }));
+  if (data.goals.length === 0) {
+    content.appendChild(el('p', { class: 'muted' }, 'No goals yet. Click + Add Goal to give the agent something to work on.'));
+  } else {
+    const tbl = el('table', {},
+      el('thead', {}, el('tr', {},
+        el('th', {}, 'Title'), el('th', {}, 'Status'),
+        el('th', {}, 'Priority'), el('th', {}, 'Created'))),
+      el('tbody', {}, ...data.goals.map(g => el('tr', {},
+        el('td', {}, g.title), el('td', {}, pill(g.status)),
+        el('td', {}, g.priority),
+        el('td', { class: 'muted' }, fmtTime(g.created_at))))));
+    content.appendChild(tbl);
+  }
+
+  // ---- Repos ----------------------------------------------------------
+  content.appendChild(el('h2', {}, `Repos (${data.repos.length})`,
+    el('button', { class: 'secondary', style: 'margin-left:12px;',
+      onClick: () => openRepoForm(project_id) }, '+ Add Repo')));
+  content.appendChild(el('div', { id: 'repo-form-host' }));
   if (data.repos.length === 0) {
     content.appendChild(el('p', { class: 'muted' }, 'No repos yet.'));
   } else {
@@ -340,23 +445,13 @@ route('/projects/:project_id', async ({ project_id }) => {
     content.appendChild(tbl);
   }
 
-  content.appendChild(el('h2', {}, `Goals (${data.goals.length})`));
-  if (data.goals.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No goals yet.'));
-  } else {
-    const tbl = el('table', {},
-      el('thead', {}, el('tr', {},
-        el('th', {}, 'Title'), el('th', {}, 'Status'), el('th', {}, 'Priority'), el('th', {}, 'Created'))),
-      el('tbody', {}, ...data.goals.map(g => el('tr', {},
-        el('td', {}, g.title), el('td', {}, pill(g.status)),
-        el('td', {}, g.priority),
-        el('td', { class: 'muted' }, fmtTime(g.created_at))))));
-    content.appendChild(tbl);
-  }
-
-  content.appendChild(el('h2', {}, `Tasks (${data.tasks.length})`));
+  // ---- Tasks -----------------------------------------------------------
+  content.appendChild(el('h2', {}, `Tasks (${data.tasks.length})`,
+    el('button', { class: 'secondary', style: 'margin-left:12px;',
+      onClick: () => openTaskForm(project_id) }, '+ Add Task (manual)')));
+  content.appendChild(el('div', { id: 'task-form-host' }));
   if (data.tasks.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No tasks yet.'));
+    content.appendChild(el('p', { class: 'muted' }, 'No tasks yet. Tasks usually appear automatically after you add a goal and approve its plan.'));
   } else {
     const tbl = el('table', {},
       el('thead', {}, el('tr', {},
@@ -373,6 +468,155 @@ route('/projects/:project_id', async ({ project_id }) => {
     content.appendChild(tbl);
   }
 });
+
+function openGoalForm(project_id) {
+  const host = $('#goal-form-host');
+  if (!host) return;
+  host.innerHTML = '';
+  const card = el('div', { class: 'card', style: 'max-width:680px;' },
+    el('h3', {}, 'New Goal'),
+    el('p', { class: 'muted', style: 'margin:0 0 8px 0;' },
+      'A planner task is auto-created. Approve the resulting plan to instantiate the implementation tasks.'),
+    el('form', { class: 'form-grid', onSubmit: async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        const result = await api('/goals', { method: 'POST', body: {
+          project_id,
+          title: f.title.value.trim(),
+          description_md: f.description_md.value,
+          priority: f.priority.value,
+        }});
+        toast(`Goal submitted — planner task queued`, 'success');
+        host.innerHTML = '';
+        render();
+      } catch (err) {
+        toast(`Submit failed: ${err.message}`, 'error', 6000);
+        btn.disabled = false; btn.textContent = 'Submit';
+      }
+    }},
+      el('label', {}, 'Title',
+        el('input', { name: 'title', type: 'text', required: true,
+          placeholder: 'e.g. Add a /health endpoint with passing pytest test' })),
+      el('label', {}, 'Description (what the agent should do)',
+        el('textarea', { name: 'description_md', required: true, rows: 5,
+          placeholder: 'Describe the feature. Be specific about acceptance criteria so the planner can produce structured tests/checks.' })),
+      el('label', {}, 'Priority',
+        el('select', { name: 'priority' },
+          el('option', { value: 'low' }, 'low'),
+          el('option', { value: 'normal', selected: true }, 'normal'),
+          el('option', { value: 'high' }, 'high'),
+          el('option', { value: 'critical' }, 'critical'))),
+      el('div', { style: 'display:flex;gap:8px;' },
+        el('button', { type: 'submit' }, 'Submit'),
+        el('button', { type: 'button', class: 'secondary',
+          onClick: () => { host.innerHTML = ''; } }, 'Cancel'))));
+  host.appendChild(card);
+  card.querySelector('input[name=title]').focus();
+}
+
+function openRepoForm(project_id) {
+  const host = $('#repo-form-host');
+  if (!host) return;
+  host.innerHTML = '';
+  const card = el('div', { class: 'card', style: 'max-width:680px;' },
+    el('h3', {}, 'New Repo'),
+    el('p', { class: 'muted', style: 'margin:0 0 8px 0;' },
+      'Repos are git remotes the agent can clone into its workspace. Cloning is wired in for future task types; v1 implement tasks use a scratch workspace.'),
+    el('form', { class: 'form-grid', onSubmit: async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        await api(`/projects/${project_id}/repos`, { method: 'POST', body: {
+          name: f.name.value.trim(),
+          role: f.role.value.trim() || null,
+          url: f.url.value.trim(),
+          default_branch: f.default_branch.value.trim() || 'main',
+          description_md: f.description_md.value,
+        }});
+        toast('Repo added', 'success');
+        host.innerHTML = '';
+        render();
+      } catch (err) {
+        toast(`Add failed: ${err.message}`, 'error', 6000);
+        btn.disabled = false; btn.textContent = 'Save';
+      }
+    }},
+      el('label', {}, 'Name', el('input', { name: 'name', type: 'text', required: true,
+        placeholder: 'e.g. api-gateway' })),
+      el('label', {}, 'Role (optional — e.g. service, frontend, infra)',
+        el('input', { name: 'role', type: 'text' })),
+      el('label', {}, 'Git URL',
+        el('input', { name: 'url', type: 'text', required: true,
+          placeholder: 'https://github.com/org/repo.git' })),
+      el('label', {}, 'Default branch',
+        el('input', { name: 'default_branch', type: 'text', value: 'main' })),
+      el('label', {}, 'Description (1-2 sentences)',
+        el('textarea', { name: 'description_md' })),
+      el('div', { style: 'display:flex;gap:8px;' },
+        el('button', { type: 'submit' }, 'Save'),
+        el('button', { type: 'button', class: 'secondary',
+          onClick: () => { host.innerHTML = ''; } }, 'Cancel'))));
+  host.appendChild(card);
+  card.querySelector('input[name=name]').focus();
+}
+
+function openTaskForm(project_id) {
+  const host = $('#task-form-host');
+  if (!host) return;
+  host.innerHTML = '';
+  const card = el('div', { class: 'card', style: 'max-width:680px;' },
+    el('h3', {}, 'New Task (manual)'),
+    el('p', { class: 'muted', style: 'margin:0 0 8px 0;' },
+      'Most tasks are created automatically by the planner. Use this for ad-hoc work outside a planned goal — e.g. a one-off implement, review, or discuss task.'),
+    el('form', { class: 'form-grid', onSubmit: async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        await api('/tasks', { method: 'POST', body: {
+          project_id,
+          type: f.type.value,
+          title: f.title.value.trim(),
+          description_md: f.description_md.value,
+          priority: f.priority.value,
+          status: 'ready',
+        }});
+        toast(`Task created`, 'success');
+        host.innerHTML = '';
+        render();
+      } catch (err) {
+        toast(`Create failed: ${err.message}`, 'error', 6000);
+        btn.disabled = false; btn.textContent = 'Create';
+      }
+    }},
+      el('label', {}, 'Type',
+        el('select', { name: 'type' },
+          el('option', { value: 'implement', selected: true }, 'implement'),
+          el('option', { value: 'review' }, 'review'),
+          el('option', { value: 'discuss' }, 'discuss'),
+          el('option', { value: 'review_pr' }, 'review_pr'),
+          el('option', { value: 'respond_to_ci_failure' }, 'respond_to_ci_failure'))),
+      el('label', {}, 'Title', el('input', { name: 'title', type: 'text', required: true })),
+      el('label', {}, 'Description', el('textarea', { name: 'description_md', rows: 4 })),
+      el('label', {}, 'Priority',
+        el('select', { name: 'priority' },
+          el('option', { value: 'low' }, 'low'),
+          el('option', { value: 'normal', selected: true }, 'normal'),
+          el('option', { value: 'high' }, 'high'),
+          el('option', { value: 'critical' }, 'critical'))),
+      el('div', { style: 'display:flex;gap:8px;' },
+        el('button', { type: 'submit' }, 'Create'),
+        el('button', { type: 'button', class: 'secondary',
+          onClick: () => { host.innerHTML = ''; } }, 'Cancel'))));
+  host.appendChild(card);
+  card.querySelector('input[name=title]').focus();
+}
 
 route('/tasks/:task_id', async ({ task_id }) => {
   setActiveNav('projects');
@@ -509,49 +753,95 @@ async function refreshSecrets() {
 }
 
 function openSecretModal() {
-  const modal = el('div', { class: 'card', style: 'max-width:600px;margin:24px auto;' },
-    el('h2', {}, 'New Secret'),
+  // Inline form above the list — no content replacement.
+  let host = document.getElementById('secret-form-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'secret-form-host';
+    const list = $('#secrets-list');
+    if (list && list.parentNode) list.parentNode.insertBefore(host, list);
+    else $('#content').appendChild(host);
+  }
+  host.innerHTML = '';
+  const card = el('div', { class: 'card', style: 'max-width:680px;' },
+    el('h3', {}, 'New Secret'),
     el('form', { class: 'form-grid', onSubmit: async (e) => {
       e.preventDefault();
       const f = e.target;
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        await api('/secrets', { method: 'POST', body: {
+        const r = await api('/secrets', { method: 'POST', body: {
           name: f.name.value.trim().toUpperCase(),
           value: f.value.value,
           description: f.description.value,
           scope: f.scope.value || 'global',
         }});
-        location.hash = '#/vault';
+        toast(`Secret "${r.name}" saved`, 'success');
+        host.innerHTML = '';
         await refreshSecrets();
-      } catch (err) { alert(err.message); }
+      } catch (err) {
+        toast(`Save failed: ${err.message}`, 'error', 6000);
+        btn.disabled = false; btn.textContent = 'Save';
+      }
     }},
       el('label', {}, 'Name (UPPER_SNAKE_CASE)',
-        el('input', { name: 'name', type: 'text', required: true, pattern: '[A-Z][A-Z0-9_]*' })),
-      el('label', {}, 'Value (write-only)',
+        el('input', { name: 'name', type: 'text', required: true,
+          pattern: '[A-Z][A-Z0-9_]*', placeholder: 'GITHUB_TOKEN' })),
+      el('label', {}, 'Value (write-only — never readable again)',
         el('input', { name: 'value', type: 'password', required: true })),
       el('label', {}, 'Description',
         el('input', { name: 'description', type: 'text' })),
-      el('label', {}, 'Scope (e.g. "global" or "project:01H...")',
+      el('label', {},
+        el('span', {}, 'Scope (global, or project:<id>, or repo:<id>)'),
         el('input', { name: 'scope', type: 'text', value: 'global' })),
-      el('button', { type: 'submit' }, 'Save')));
-  $('#content').innerHTML = '';
-  $('#content').appendChild(modal);
+      el('div', { style: 'display:flex;gap:8px;' },
+        el('button', { type: 'submit' }, 'Save'),
+        el('button', { type: 'button', class: 'secondary',
+          onClick: () => { host.innerHTML = ''; } }, 'Cancel'))));
+  host.appendChild(card);
+  card.querySelector('input[name=name]').focus();
 }
 
 // -------- Boot ----------------------------------------------------------
+function isFormActive() {
+  // True if any inline form host has form fields with focus or with
+  // dirty (non-empty) inputs — re-rendering would lose the user's input.
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) {
+    return true;
+  }
+  // Any inline form host with content => form is open even if not focused
+  const hosts = $$('#goal-form-host, #repo-form-host, #task-form-host, #inline-form-host');
+  return hosts.some(h => h.children.length > 0);
+}
+
+let _renderDebounce = null;
+function debouncedRender() {
+  if (_renderDebounce) clearTimeout(_renderDebounce);
+  _renderDebounce = setTimeout(() => {
+    _renderDebounce = null;
+    if (isFormActive()) return;          // don't clobber user input
+    render();
+  }, 400);
+}
+
 async function boot() {
   connectWS();
 
-  // Live-refresh current screen on relevant events
+  // Live-refresh current screen on relevant events (debounced + form-aware)
   onEvent((ev) => {
-    // Always refresh notifications and health on agent/question events
     if (ev.kind.startsWith('agent.') || ev.kind.startsWith('question.')) {
       refreshHealth();
       refreshNotifications();
     }
-    // Re-render current screen for any event — cheap and reliable
-    render();
+    debouncedRender();
   });
+
+  // Notification bell → toggle a dropdown of pending questions
+  const notifBtn = $('#notif-btn');
+  if (notifBtn) notifBtn.onclick = (e) => { e.stopPropagation(); toggleNotifDropdown(); };
+  document.addEventListener('click', () => closeNotifDropdown());
 
   await refreshHealth();
   await refreshNotifications();
