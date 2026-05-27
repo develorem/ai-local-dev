@@ -2,8 +2,8 @@
 #
 # Brings up Hub + Ollama + one Agent.
 # Run:   docker compose up -d
-# UI:    http://localhost:8080
-# API:   http://localhost:8080/api/health
+# UI:    http://localhost:6724
+# API:   http://localhost:6724/api/health
 #
 # For multi-agent or multi-host setups: duplicate the `agent` service block
 # with a different container_name and AGENT_NAME, or deploy Dockerfile.agent
@@ -41,7 +41,7 @@ services:
     volumes:
       - ./data:/data
     ports:
-      - "8080:8080"
+      - "6724:6724"
     networks:
       - orchestrai-net
     restart: unless-stopped
@@ -55,7 +55,7 @@ services:
       - hub
       - ollama
     environment:
-      ORCHESTRAI_HUB_URL: http://hub:8080
+      ORCHESTRAI_HUB_URL: http://hub:6724
       OLLAMA_URL: http://ollama:11434
       AGENT_NAME: "agent@${COMPUTERNAME:-local}"
       MODEL_PRIMARY: qwen2.5-coder:14b

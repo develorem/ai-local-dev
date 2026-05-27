@@ -76,7 +76,7 @@ RUN chmod +x /usr/local/bin/orchestrai-*
 # Workspace mount point for clones
 WORKDIR /workspace
 
-ENV ORCHESTRAI_HUB_URL=http://hub:8080
+ENV ORCHESTRAI_HUB_URL=http://hub:6724
 
 # The entrypoint is the agent loop — registers with Hub, claims tasks, executes
 ENTRYPOINT ["python", "-m", "orchestrai_agent"]
@@ -182,7 +182,7 @@ agent:
         cpus: '4'
         pids: 512
   environment:
-    ORCHESTRAI_HUB_URL: http://hub:8080
+    ORCHESTRAI_HUB_URL: http://hub:6724
   networks: [orchestrai-net]
   restart: unless-stopped
 ```

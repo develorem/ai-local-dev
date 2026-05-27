@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir -e /opt/orchestrai-agent
 # Workspace for clones
 WORKDIR /workspace
 
-ENV ORCHESTRAI_HUB_URL=http://hub:8080 \
+ENV ORCHESTRAI_HUB_URL=http://hub:6724 \
     OLLAMA_URL=http://ollama:11434
 
 CMD ["python", "-m", "orchestrai_agent"]

@@ -90,17 +90,17 @@ docker compose exec ollama ollama pull qwen2.5-coder:14b
 
 ```powershell
 # Hub healthy
-curl http://localhost:8080/api/health
+curl http://localhost:6724/api/health
 
 # Agent registered
-curl http://localhost:8080/api/agents
+curl http://localhost:6724/api/agents
 ```
 
 The Hub health response should show `ollama.reachable=true` and at least one agent listed.
 
 ```powershell
 # Open the UI
-start http://localhost:8080
+start http://localhost:6724
 ```
 
 You should see the Agents screen with one connected agent in `idle` status.
@@ -142,7 +142,7 @@ services:
       - ./data:/data
       - /c/me/.orchestrai/master_key:/run/secrets/master_key:ro
     ports:
-      - "8080:8080"
+      - "6724:6724"
     networks: [orchestrai-net]
     restart: unless-stopped
 
@@ -153,7 +153,7 @@ services:
     container_name: orchestrai-agent
     depends_on: [hub]
     environment:
-      ORCHESTRAI_HUB_URL: http://hub:8080
+      ORCHESTRAI_HUB_URL: http://hub:6724
       AGENT_NAME: "agent@${HOSTNAME:-dev}"
     networks: [orchestrai-net]
     restart: unless-stopped
@@ -229,7 +229,7 @@ The host path in `docker-compose.yml` doesn't match where you saved the key. Fix
 
 ### Agent registers, then immediately marked `lost`
 
-Agent → Hub heartbeats are failing. Inside the agent: `curl http://hub:8080/api/health` should return 200. If not, check the compose network.
+Agent → Hub heartbeats are failing. Inside the agent: `curl http://hub:6724/api/health` should return 200. If not, check the compose network.
 
 ### Schema migration error on first start
 
@@ -271,7 +271,7 @@ pip install -r requirements.txt
 $env:OLLAMA_URL = "http://localhost:11434"
 $env:DATA_DIR = ".\data"
 $env:MASTER_KEY_PATH = "C:\me\.orchestrai\master_key"
-uvicorn hub.main:app --reload --host 0.0.0.0 --port 8080
+uvicorn hub.main:app --reload --host 0.0.0.0 --port 6724
 ```
 
-Then run an agent in a container pointed at the host: edit `docker-compose.dev.yml` to override `ORCHESTRAI_HUB_URL=http://host.docker.internal:8080` and start just the agent.
+Then run an agent in a container pointed at the host: edit `docker-compose.dev.yml` to override `ORCHESTRAI_HUB_URL=http://host.docker.internal:6724` and start just the agent.

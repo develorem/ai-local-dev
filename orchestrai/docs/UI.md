@@ -1,6 +1,6 @@
 # OrchestrAi — UI
 
-The browser app served by the Hub at `:8080`. Five primary screens plus a global notification area. Left nav for top-level navigation, deep links into details, live updates via WebSocket.
+The browser app served by the Hub at `:6724`. Five primary screens plus a global notification area. Left nav for top-level navigation, deep links into details, live updates via WebSocket.
 
 ## Frame
 

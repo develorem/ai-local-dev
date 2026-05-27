@@ -1,6 +1,6 @@
 # OrchestrAi — API
 
-REST + WebSocket served by the **Hub** on `:8080`. Two clients consume it:
+REST + WebSocket served by the **Hub** on `:6724`. Two clients consume it:
 - **Browser UI** (anyone on `localhost`)
 - **Agents** (any number, talk over the compose network)
 
