@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OrchestrAi</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">OrchestrAi</div>
+    <nav>
+      <a href="#/agents" data-nav="agents">Agents</a>
+      <a href="#/projects" data-nav="projects">Projects</a>
+      <a href="#/vault" data-nav="vault">Vault</a>
+    </nav>
+    <div class="status" id="health-status">
+      <div>Hub: <span id="hub-status">…</span></div>
+      <div>Ollama: <span id="ollama-status">…</span></div>
+      <div>Agents: <span id="agent-count">…</span></div>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <div id="breadcrumb">…</div>
+    <div class="notifications">
+      <button id="notif-btn" title="Pending questions">
+        <span id="notif-count">0</span> pending
+      </button>
+    </div>
+  </header>
+
+  <main id="content">
+    <p class="muted">Loading…</p>
+  </main>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Runtime data — DB + caches
+data/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local env / secrets
+.env
+.env.local
+*.key
+master_key
+
+# IDE / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
