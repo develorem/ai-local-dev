@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -11,6 +11,15 @@ from server.config import config
 from server.db import init_db, run_migrations
 from server.reaper import start_reaper, stop_reaper
 from server.routes import api
+
+# Single-user local dev tool: disable browser caching on UI assets so the
+# user always gets the latest build the moment we redeploy. Bandwidth cost
+# is negligible (single small JS/CSS/HTML).
+_NO_CACHE = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 @asynccontextmanager
@@ -35,16 +44,24 @@ app = FastAPI(
 
 app.include_router(api)
 
-# Static UI
+# Static UI — no-cache everywhere so a fresh deploy is visible without a hard refresh.
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 if UI_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=UI_DIR / "assets"), name="assets")
+
+    class _NoCacheStatic(StaticFiles):
+        async def get_response(self, path, scope):
+            response = await super().get_response(path, scope)
+            for k, v in _NO_CACHE.items():
+                response.headers[k] = v
+            return response
+
+    app.mount("/assets", _NoCacheStatic(directory=UI_DIR / "assets"), name="assets")
 
     @app.get("/")
     async def root_index():
         idx = UI_DIR / "index.html"
         if idx.exists():
-            return FileResponse(idx)
+            return FileResponse(idx, headers=_NO_CACHE)
         return JSONResponse({"error": "UI not built"}, status_code=404)
 
     @app.get("/{path:path}")
@@ -56,8 +73,8 @@ if UI_DIR.exists():
         # for unknown paths so client-side hash routes work.
         f = UI_DIR / path
         if f.exists() and f.is_file():
-            return FileResponse(f)
+            return FileResponse(f, headers=_NO_CACHE)
         idx = UI_DIR / "index.html"
         if idx.exists():
-            return FileResponse(idx)
+            return FileResponse(idx, headers=_NO_CACHE)
         return JSONResponse({"error": "not_found"}, status_code=404)
