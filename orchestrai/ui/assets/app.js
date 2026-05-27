@@ -222,7 +222,16 @@ route('/agents', async () => {
     return;
   }
   for (const a of data.items) {
-    const tname = a.current_task_id ? `task ${a.current_task_id.slice(-6)}` : 'no current task';
+    const currentRow = a.current_task_id
+      ? el('div', { class: 'muted', style: 'margin-top:4px;' },
+          'current: ',
+          el('a', { href: `#/tasks/${a.current_task_id}` },
+            a.current_task_title || `task ${a.current_task_id.slice(-6)}`),
+          a.current_task_type
+            ? el('span', { class: 'muted' }, ` (${a.current_task_type})`)
+            : null)
+      : el('div', { class: 'muted', style: 'margin-top:4px;' }, 'no current task');
+
     content.appendChild(el('div', { class: 'card' },
       el('div', { class: 'card-row' },
         pill(a.status),
@@ -232,8 +241,8 @@ route('/agents', async () => {
               el('strong', {}, a.name)),
             ' · ', a.host || 'no host'),
           el('div', { class: 'muted' },
-            `v${a.version} · last heartbeat ${fmtTime(a.last_heartbeat_at)} · ${tname}`)),
-      )));
+            `v${a.version} · last heartbeat ${fmtTime(a.last_heartbeat_at)}`),
+          currentRow))));
   }
 });
 
@@ -671,14 +680,80 @@ route('/tasks/:task_id', async ({ task_id }) => {
       const card = el('div', { class: 'card' },
         el('div', { class: 'muted' }, q.kind),
         el('pre', { style: 'white-space:pre-wrap;font-family:inherit;margin:8px 0;' }, q.prompt_md));
+
+      // For plan_approval questions, render the actual plan content + task outline
+      // so the human knows exactly what they are approving.
+      if (q.kind === 'plan_approval' && (data.plans || []).length > 0) {
+        const draft = data.plans.find(p => p.status === 'draft') || data.plans[0];
+        if (draft) {
+          card.appendChild(el('h3', { style: 'margin-top:16px;' },
+            `Plan v${draft.version}`,
+            el('span', { class: 'muted', style: 'margin-left:8px;font-weight:normal;font-size:12px;' },
+              draft.status)));
+          if (draft.content_md) {
+            card.appendChild(el('pre', {
+              style: 'background:var(--bg);padding:12px;border-radius:4px;' +
+                     'white-space:pre-wrap;font-family:inherit;font-size:13px;' +
+                     'max-height:400px;overflow:auto;border:1px solid var(--border);'
+            }, draft.content_md));
+          }
+          if ((draft.task_outline || []).length > 0) {
+            card.appendChild(el('h4', { style: 'margin:12px 0 6px 0;' },
+              `Proposed tasks (${draft.task_outline.length})`));
+            const list = el('ol', { style: 'margin:0 0 12px 20px;padding:0;' });
+            draft.task_outline.forEach(t => {
+              const li = el('li', { style: 'margin:10px 0;' },
+                el('div', {},
+                  el('span', { class: 'pill',
+                    style: 'background:var(--surface-2);color:var(--accent);margin-right:6px;' },
+                    t.type || 'implement'),
+                  el('strong', {}, t.title || '(no title)')));
+              if (t.description_md) {
+                li.appendChild(el('div', { class: 'muted',
+                  style: 'font-size:12px;margin:4px 0;' }, t.description_md));
+              }
+              if ((t.acceptance_criteria || []).length > 0) {
+                const ul = el('ul', { style: 'margin:4px 0;font-size:12px;' });
+                t.acceptance_criteria.forEach(c => {
+                  const label = typeof c === 'string'
+                    ? c
+                    : (c.kind === 'test'
+                        ? `test: \`${c.cmd}\` exits ${c.expect_exit ?? 0}`
+                        : c.kind === 'file_exists'
+                        ? `file exists: \`${c.path}\``
+                        : JSON.stringify(c));
+                  ul.appendChild(el('li', {}, label));
+                });
+                li.appendChild(ul);
+              }
+              if ((t.depends_on_titles || []).length > 0) {
+                li.appendChild(el('div', { class: 'muted',
+                  style: 'font-size:11px;margin-top:4px;' },
+                  '↳ depends on: ' + t.depends_on_titles.join(', ')));
+              }
+              list.appendChild(li);
+            });
+            card.appendChild(list);
+          }
+        }
+      }
+
       const form = el('form', { class: 'form-grid', onSubmit: async (e) => {
         e.preventDefault();
         const f = e.target;
-        await api(`/questions/${q.id}/answer`, { method: 'POST', body: {
-          answer_md: f.answer_md.value || null,
-          answer_value: f.answer_value.value || null,
-        }});
-        render();
+        try {
+          await api(`/questions/${q.id}/answer`, { method: 'POST', body: {
+            answer_md: f.answer_md.value || null,
+            answer_value: f.answer_value.value || null,
+          }});
+          const lbl = f.answer_value.value
+            ? f.answer_value.options[f.answer_value.selectedIndex]?.text
+            : 'answered';
+          toast(`Answer recorded: ${lbl || f.answer_value.value || 'submitted'}`, 'success');
+          render();
+        } catch (err) {
+          toast(`Answer failed: ${err.message}`, 'error', 6000);
+        }
       }},
         (q.options || []).length > 0
           ? el('label', {}, 'Choice',

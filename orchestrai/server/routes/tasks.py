@@ -149,8 +149,30 @@ def get_task(task_id: str, conn=Depends(db_dep)):
         (task_id,),
     ).fetchall()]
 
+    # For plan / revise tasks, include the plans for this goal so the UI can
+    # render the actual plan content alongside a plan_approval question.
+    plans = []
+    if row["type"] in ("plan", "revise") and row["goal_id"]:
+        plan_rows = conn.execute(
+            """
+            SELECT id, version, status, content_md, task_outline,
+                   created_at, approval_question_id
+            FROM plans WHERE goal_id = ?
+            ORDER BY version DESC LIMIT 10
+            """,
+            (row["goal_id"],),
+        ).fetchall()
+        for p in plan_rows:
+            plans.append({
+                "id": p["id"], "version": p["version"], "status": p["status"],
+                "content_md": p["content_md"],
+                "task_outline": json_loads(p["task_outline"], []),
+                "created_at": p["created_at"],
+                "approval_question_id": p["approval_question_id"],
+            })
+
     return {"task": task, "agent": agent, "questions": questions,
-            "history": history, "children": children}
+            "history": history, "children": children, "plans": plans}
 
 
 @router.patch("/{task_id}")

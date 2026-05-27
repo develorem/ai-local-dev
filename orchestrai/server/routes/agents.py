@@ -232,11 +232,22 @@ def release(agent_id: str, body: dict = None,
 @router.get("")
 def list_agents(conn=Depends(db_dep)):
     rows = conn.execute(
-        "SELECT * FROM agents ORDER BY "
-        "  CASE status WHEN 'busy' THEN 0 WHEN 'idle' THEN 1 WHEN 'connected' THEN 2 "
-        "              WHEN 'lost' THEN 3 ELSE 4 END, registered_at DESC"
+        """
+        SELECT a.*, t.title AS _current_task_title, t.type AS _current_task_type
+        FROM agents a
+        LEFT JOIN tasks t ON t.id = a.current_task_id
+        ORDER BY
+          CASE a.status WHEN 'busy' THEN 0 WHEN 'idle' THEN 1 WHEN 'connected' THEN 2
+                        WHEN 'lost' THEN 3 ELSE 4 END, a.registered_at DESC
+        """
     ).fetchall()
-    return {"items": [_row_to_agent(r) for r in rows]}
+    items = []
+    for r in rows:
+        d = _row_to_agent(r)
+        d["current_task_title"] = r["_current_task_title"]
+        d["current_task_type"] = r["_current_task_type"]
+        items.append(d)
+    return {"items": items}
 
 
 @router.get("/{agent_id}")
