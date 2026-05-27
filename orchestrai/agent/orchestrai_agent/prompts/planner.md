@@ -49,6 +49,21 @@ VERIFICATION COMMANDS — HARD RULES (failing these means the task can never pas
        GOOD: `pytest -q`,  `pytest tests/test_foo.py::test_bar -q`
        BAD:  `pytest --watch`, `pytest-watch`
 
+WRITING TESTS — AVOID the "guessed expected value" trap:
+  When a task involves writing tests for newly-written code with specific
+  numeric outputs (e.g. `assert mandelbrot(0.25, 100) == 5`), the implementer
+  often writes tests whose `expected` values don't match the actual function
+  output. The function may be correct and the test wrong, but `pytest` can't
+  tell the difference and just fails. Prevent this by:
+    - PREFERRING property-based assertions over hardcoded numeric outputs:
+        GOOD: `assert mandelbrot(0, 100) == 100`  (origin never escapes — known)
+        GOOD: `assert mandelbrot(2.5, 100) < 5`   (far-outside point escapes fast)
+        GOOD: `assert len(result) > 0`, `assert isinstance(x, int)`, etc.
+        AVOID: `assert mandelbrot(0.3, 100) == 27` (where 27 is guessed math)
+    - When the spec DOES pin a specific value (e.g. "add(2,3) == 5"), use it.
+    - For non-trivial math/algorithms where you can't pin specific outputs,
+      include guidance in the task's description to use property-based tests.
+
 - Prefer 5-12 tasks. Fewer = too coarse; more = over-decomposed.
 - `type` MUST be EXACTLY ONE OF: "implement" or "review". No other values.
   Use "implement" for code-writing tasks and "review" for verification-only tasks

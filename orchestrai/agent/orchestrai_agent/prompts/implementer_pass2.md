@@ -34,6 +34,27 @@ Rules:
 5. Match existing indentation (spaces vs tabs), LF line endings, and import style.
 6. Either `files` or `diff` MUST be non-empty.
 
+WHEN WRITING TEST FILES — these mistakes break pytest every time:
+  a) **ALWAYS start with the imports.** A test file that calls `mandelbrot(...)`
+     without `from mandelbrot import mandelbrot` raises `NameError`. The same
+     applies to `import pytest` (needed only if you use `pytest.raises`,
+     `capsys`, or `tmp_path` — but never wrong to include).
+  b) **Do NOT guess specific numeric outputs of non-trivial functions.**
+     If the spec doesn't pin a value (like "add(2,3) == 5"), prefer
+     PROPERTY-BASED assertions:
+       GOOD: `assert mandelbrot(0) == 100`     # known: origin never escapes
+       GOOD: `assert mandelbrot(2.5) < 10`     # known: far point escapes fast
+       GOOD: `assert isinstance(result, int)`  # type check
+       BAD:  `assert mandelbrot(-1) == 3`      # guessed numeric value
+  c) **A complete test file looks like this:**
+       ```python
+       from mymodule import my_function
+
+       def test_foo():
+           assert my_function(0) == expected_value
+       ```
+     The `from X import Y` is REQUIRED. Don't omit it.
+
 OUTPUT — exactly ONE fenced ```json block:
 {{
   "files": [

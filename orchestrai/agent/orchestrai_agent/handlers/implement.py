@@ -52,40 +52,95 @@ def _retry_section(task: dict) -> str:
     attempt_count > 0 so we don't add noise to first-try prompts.
 
     The notes already contain per-attempt stamped reasons. We re-render them
-    here at top-level so the LLM can't miss them, plus add explicit guidance.
+    here at top-level so the LLM can't miss them, plus include the actual
+    stdout/stderr from the most recent failing verification command (where
+    the real error message lives — e.g. an AssertionError with the actual
+    vs expected values), plus explicit guidance.
     """
     attempts = int(task.get("attempt_count") or 0)
     if attempts <= 0:
         return ""
 
     notes = (task.get("notes") or "").strip()
-    # Pull the last few [timestamp] lines for context.
     failure_lines = [ln for ln in notes.splitlines() if ln.startswith("[")][-5:]
     failure_block = "\n".join(failure_lines) or "(no specific failure reasons recorded)"
+
+    # Grab the most recent failed command's stdout/stderr from the previous
+    # attempt's result. This is what tells the LLM e.g. WHICH assertion failed
+    # — far more useful than the generic "verification commands failed" note.
+    last_result = task.get("result") or {}
+    cmd_outputs: list[str] = []
+    for c in (last_result.get("commands_run") or []):
+        if not isinstance(c, dict):
+            continue
+        if int(c.get("exit", 0)) == 0 and not c.get("timed_out"):
+            continue
+        cmd = c.get("cmd", "(unknown)")
+        out = (c.get("stdout") or "").strip()
+        err = (c.get("stderr") or "").strip()
+        exit_code = c.get("exit", "?")
+        timed_out = c.get("timed_out", False)
+        body = f"$ {cmd}\n[exit={exit_code}{', TIMEOUT' if timed_out else ''}]"
+        if err:
+            body += f"\n--- stderr ---\n{err[-1500:]}"
+        if out:
+            body += f"\n--- stdout ---\n{out[-1500:]}"
+        cmd_outputs.append(body)
+    cmd_outputs_block = (
+        "\n\nRAW OUTPUT OF FAILING COMMAND(S) FROM LAST ATTEMPT (READ THIS — the\n"
+        "actual error / assertion message tells you what to fix):\n```\n"
+        + ("\n\n".join(cmd_outputs[:2]))
+        + "\n```"
+    ) if cmd_outputs else ""
 
     return (
         "▲▲▲ PREVIOUS ATTEMPT(S) FAILED — READ THIS BEFORE ANYTHING ELSE ▲▲▲\n"
         f"This is attempt {attempts + 1}. Earlier attempts produced the following errors:\n"
-        f"{failure_block}\n\n"
+        f"{failure_block}"
+        f"{cmd_outputs_block}\n\n"
         "MANDATORY RULES FOR THIS ATTEMPT:\n"
         "  1. Do NOT repeat the same approach that failed above. Try something different.\n"
-        "  2. If a previous attempt's diff was rejected (`corrupt patch`, `does not apply`),\n"
+        "  2. READ the raw failing-command output above (if any). The specific error\n"
+        "     message — `AssertionError: assert 7 == 42`, `ModuleNotFoundError: No module\n"
+        "     named 'X'`, `SyntaxError: ...`, etc. — tells you precisely what to fix.\n"
+        "     Don't rewrite unrelated files; fix the SPECIFIC thing that broke.\n"
+        "  3. When a pytest assertion fails with `assert actual == expected`:\n"
+        "       - If the implementation matches the spec, the EXPECTED value in the test\n"
+        "         is probably wrong (LLMs often guess test values). Update the test to\n"
+        "         match the actual value, OR rewrite the test as a property check that\n"
+        "         doesn't depend on a specific numeric output.\n"
+        "       - If the spec is clear on the value (e.g. \"add(2,3) returns 5\") then\n"
+        "         the implementation is wrong. Fix the implementation.\n"
+        "  4. If a previous attempt's diff was rejected (`corrupt patch`, `does not apply`),\n"
         "     DO NOT produce a diff this time — use the `files[]` array with full file\n"
-        "     contents instead. That path is much more reliable.\n"
-        "  3. If a previous attempt's verification command failed with `command not found`\n"
-        "     (exit 127), the tool is not installed. Either (a) add a `pip install` /\n"
-        "     `npm install` step earlier in `commands_to_run`, or (b) use a different\n"
-        "     verification (e.g. `python -c \"import mymodule\"`).\n"
-        "  4. If a verification command hangs / doesn't return (uvicorn --reload, npm start,\n"
-        "     etc.), it is NOT a valid acceptance check. Use a one-shot import/assertion\n"
-        "     instead. Include a `questions[]` entry asking the human to fix the criterion.\n"
-        "  5. If you cannot find a different approach, surface a clarifying question in\n"
+        "     contents instead.\n"
+        "  5. If exit 127 (`command not found`), the tool is not installed. Either add a\n"
+        "     `pip install` / `npm install` step EARLIER in `commands_to_run`, or use a\n"
+        "     different verification (e.g. `python -c \"import mymodule\"`).\n"
+        "  6. If a verification command hangs (uvicorn --reload, npm start), it is NOT a\n"
+        "     valid acceptance check. Use a one-shot import/assertion instead, AND surface\n"
+        "     a `questions[]` entry asking the human to fix the criterion.\n"
+        "  7. If you cannot find a different approach, surface a clarifying question in\n"
         "     `questions[]` rather than producing the same broken output again.\n"
         "▲▲▲\n\n"
     )
 
 
-def _render_pass1(project: dict, task: dict, workspace_tree: str) -> str:
+def _render_pass1(project: dict, task: dict, workspace_tree: str,
+                  prior_files: dict | None = None) -> str:
+    # On retry, prior_files holds {path: contents} for the files the previous
+    # attempt modified. We splice them into the retry section so the LLM sees
+    # what's currently on disk instead of regenerating from scratch.
+    rs = _retry_section(task)
+    if rs and prior_files:
+        snippets = []
+        for path, content in prior_files.items():
+            snippets.append(f"--- {path} (CURRENT CONTENT) ---\n{content[-2500:]}")
+        rs += (
+            "CURRENT CONTENTS OF FILES YOU MODIFIED LAST ATTEMPT (they are still there;\n"
+            "EDIT them, do not rewrite from scratch and reintroduce the same bug):\n```\n"
+            + "\n\n".join(snippets) + "\n```\n\n"
+        )
     return _PASS1_TPL.format(
         project_name=project.get("name", "(unnamed)"),
         project_description=project.get("description_md") or "(no description)",
@@ -96,7 +151,7 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str) -> str:
         branch_name=task.get("branch_name") or "(no branch)",
         acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
         notes_indented=_indent(task.get("notes") or "(none)"),
-        retry_section=_retry_section(task),
+        retry_section=rs,
         workspace_tree=workspace_tree,
     )
 
@@ -185,8 +240,23 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         "tree_chars": len(tree),
     })
 
-    # 2. Pass 1: planning
-    pass1_prompt = _render_pass1(project, task, tree)
+    # 2. Pass 1: planning — on retry, hand the LLM the actual current contents
+    # of files the previous attempt modified so it can EDIT in place rather
+    # than regenerating from a blank slate (which is how identical bugs keep
+    # appearing across attempts).
+    prior_files: dict[str, str] = {}
+    if int(task.get("attempt_count") or 0) > 0:
+        prev_result = task.get("result") or {}
+        prev_paths = (
+            (prev_result.get("files_written") or [])
+            + (prev_result.get("files_modified") or [])
+        )
+        # Dedupe while preserving order
+        seen = set()
+        unique_paths = [p for p in prev_paths if p and not (p in seen or seen.add(p))]
+        prior_contents, _missing = read_files(workspace, unique_paths, max_chars=12_000)
+        prior_files = prior_contents
+    pass1_prompt = _render_pass1(project, task, tree, prior_files=prior_files)
     await hub.task_event(task_id, "llm.call.started", {
         "mode": "implementer_pass1",
         "model": config.DEFAULT_MODEL,
