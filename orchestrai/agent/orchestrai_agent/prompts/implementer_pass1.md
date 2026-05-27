@@ -18,6 +18,7 @@ TASK
   Notes accumulated on this task:
 {notes_indented}
 
+{retry_section}
 CURRENT WORKSPACE TREE (paths only — relative to the project workspace root)
 {workspace_tree}
 

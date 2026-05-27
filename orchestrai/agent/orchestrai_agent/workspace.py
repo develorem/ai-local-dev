@@ -110,32 +110,118 @@ async def apply_diff(workspace: Path, diff: str) -> tuple[bool, str]:
     if not diff.endswith("\n"):
         diff += "\n"
 
-    # Write diff to a temp file inside the workspace and `git apply` it
-    diff_path = workspace / ".orchestrai_pending.diff"
-    diff_path.write_text(diff, encoding="utf-8")
-
-    try:
-        # Try a check first (clean dry run)
-        check = await run(
-            ["git", "apply", "--check", "--whitespace=nowarn", str(diff_path)],
-            cwd=str(workspace), timeout_sec=30,
-        )
-        if check.exit_code != 0:
-            return False, f"git apply --check failed:\n{check.stderr}"
-
-        # Apply for real
-        applied = await run(
-            ["git", "apply", "--whitespace=nowarn", str(diff_path)],
-            cwd=str(workspace), timeout_sec=30,
-        )
-        if applied.exit_code != 0:
-            return False, f"git apply failed:\n{applied.stderr}"
-        return True, "ok"
-    finally:
+    async def _try_apply(candidate: str) -> tuple[bool, str]:
+        diff_path = workspace / ".orchestrai_pending.diff"
+        diff_path.write_text(candidate, encoding="utf-8")
         try:
-            diff_path.unlink()
-        except OSError:
-            pass
+            check = await run(
+                ["git", "apply", "--check", "--whitespace=nowarn", str(diff_path)],
+                cwd=str(workspace), timeout_sec=30,
+            )
+            if check.exit_code != 0:
+                return False, f"git apply --check failed:\n{check.stderr}"
+            applied = await run(
+                ["git", "apply", "--whitespace=nowarn", str(diff_path)],
+                cwd=str(workspace), timeout_sec=30,
+            )
+            if applied.exit_code != 0:
+                return False, f"git apply failed:\n{applied.stderr}"
+            return True, "ok"
+        finally:
+            try:
+                diff_path.unlink()
+            except OSError:
+                pass
+
+    ok, err = await _try_apply(diff)
+    if ok:
+        return True, "ok"
+
+    # Auto-repair: try fixing common LLM diff mistakes and retry once.
+    repaired = _autorepair_diff(diff)
+    if repaired and repaired != diff:
+        ok2, err2 = await _try_apply(repaired)
+        if ok2:
+            return True, "ok (auto-repaired)"
+        return False, f"{err}\n(auto-repair attempted but also failed: {err2})"
+    return False, err
+
+
+def _autorepair_diff(diff: str) -> Optional[str]:
+    """Best-effort fix for the most common LLM unified-diff mistakes.
+
+    Heuristic 1: any line inside a hunk body that doesn't start with one of
+    `+`, `-`, ` `, or `\\` is a context line that lost its leading space.
+    Re-prefix it with a space so `git apply` can parse the hunk.
+
+    Heuristic 2: rebuild the `@@ -a,b +c,d @@` line counts from the actual
+    body, so a wrong `b` or `d` doesn't reject the patch.
+
+    Returns None if nothing repairable found, or the repaired diff string.
+    """
+    import re
+
+    lines = diff.splitlines(keepends=False)
+    out: list[str] = []
+    i = 0
+    repaired_any = False
+    HUNK_RE = re.compile(r"^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)$")
+    BODY_PREFIXES = ("+", "-", " ", "\\")
+
+    while i < len(lines):
+        line = lines[i]
+        m = HUNK_RE.match(line)
+        if not m:
+            out.append(line)
+            i += 1
+            continue
+
+        old_start = int(m.group(1))
+        new_start = int(m.group(3))
+        trailing = m.group(5) or ""
+
+        # Collect the hunk body
+        body: list[str] = []
+        j = i + 1
+        while j < len(lines):
+            nxt = lines[j]
+            # Body ends at the next file/hunk header or top-level boundary
+            if (nxt.startswith("@@ ") or nxt.startswith("diff --git ") or
+                nxt.startswith("--- ") or nxt.startswith("+++ ")):
+                break
+            body.append(nxt)
+            j += 1
+
+        # Heuristic 1: re-prefix orphan context lines
+        repaired_body: list[str] = []
+        for b in body:
+            if b == "":
+                repaired_body.append(" ")  # blank context line
+                repaired_any = True
+                continue
+            if b.startswith(BODY_PREFIXES):
+                repaired_body.append(b)
+            else:
+                repaired_body.append(" " + b)
+                repaired_any = True
+        # Drop trailing blank-context padding lines (LLMs sometimes pad with empties)
+        while repaired_body and repaired_body[-1].strip() == "":
+            repaired_body.pop()
+
+        # Heuristic 2: recount
+        old_count = sum(1 for b in repaired_body if b.startswith((" ", "-")))
+        new_count = sum(1 for b in repaired_body if b.startswith((" ", "+")))
+        new_header = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{trailing}"
+        if new_header != line:
+            repaired_any = True
+
+        out.append(new_header)
+        out.extend(repaired_body)
+        i = j
+
+    if not repaired_any:
+        return None
+    return "\n".join(out) + "\n"
 
 
 async def commit_all(workspace: Path, message: str) -> Optional[str]:

@@ -46,6 +46,45 @@ def _format_criteria(criteria: list) -> str:
     return "\n".join(out)
 
 
+def _retry_section(task: dict) -> str:
+    """Produce a prominent block enumerating prior failures and demanding a
+    different approach. Empty string on the first attempt — added only when
+    attempt_count > 0 so we don't add noise to first-try prompts.
+
+    The notes already contain per-attempt stamped reasons. We re-render them
+    here at top-level so the LLM can't miss them, plus add explicit guidance.
+    """
+    attempts = int(task.get("attempt_count") or 0)
+    if attempts <= 0:
+        return ""
+
+    notes = (task.get("notes") or "").strip()
+    # Pull the last few [timestamp] lines for context.
+    failure_lines = [ln for ln in notes.splitlines() if ln.startswith("[")][-5:]
+    failure_block = "\n".join(failure_lines) or "(no specific failure reasons recorded)"
+
+    return (
+        "▲▲▲ PREVIOUS ATTEMPT(S) FAILED — READ THIS BEFORE ANYTHING ELSE ▲▲▲\n"
+        f"This is attempt {attempts + 1}. Earlier attempts produced the following errors:\n"
+        f"{failure_block}\n\n"
+        "MANDATORY RULES FOR THIS ATTEMPT:\n"
+        "  1. Do NOT repeat the same approach that failed above. Try something different.\n"
+        "  2. If a previous attempt's diff was rejected (`corrupt patch`, `does not apply`),\n"
+        "     DO NOT produce a diff this time — use the `files[]` array with full file\n"
+        "     contents instead. That path is much more reliable.\n"
+        "  3. If a previous attempt's verification command failed with `command not found`\n"
+        "     (exit 127), the tool is not installed. Either (a) add a `pip install` /\n"
+        "     `npm install` step earlier in `commands_to_run`, or (b) use a different\n"
+        "     verification (e.g. `python -c \"import mymodule\"`).\n"
+        "  4. If a verification command hangs / doesn't return (uvicorn --reload, npm start,\n"
+        "     etc.), it is NOT a valid acceptance check. Use a one-shot import/assertion\n"
+        "     instead. Include a `questions[]` entry asking the human to fix the criterion.\n"
+        "  5. If you cannot find a different approach, surface a clarifying question in\n"
+        "     `questions[]` rather than producing the same broken output again.\n"
+        "▲▲▲\n\n"
+    )
+
+
 def _render_pass1(project: dict, task: dict, workspace_tree: str) -> str:
     return _PASS1_TPL.format(
         project_name=project.get("name", "(unnamed)"),
@@ -57,6 +96,7 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str) -> str:
         branch_name=task.get("branch_name") or "(no branch)",
         acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
         notes_indented=_indent(task.get("notes") or "(none)"),
+        retry_section=_retry_section(task),
         workspace_tree=workspace_tree,
     )
 
@@ -82,6 +122,7 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
         repo_name="(no specific repo)",
         branch_name=task.get("branch_name") or "(no branch)",
         acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
+        retry_section=_retry_section(task),
         files_to_write_summary=files_summary,
         diff_plan_md=pass1.get("diff_plan_md") or "(no plan provided)",
         files_contents=files_block,

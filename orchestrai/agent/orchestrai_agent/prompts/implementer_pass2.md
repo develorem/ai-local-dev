@@ -18,6 +18,7 @@ TASK
   Acceptance criteria:
 {acceptance_criteria_indented}
 
+{retry_section}
 YOUR PASS 1 PLAN
   files_to_write_or_modify: {files_to_write_summary}
   diff_plan: {diff_plan_md}

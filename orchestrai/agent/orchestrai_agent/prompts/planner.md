@@ -13,6 +13,18 @@ GOAL
 
 Decompose the goal above into a sequence of concrete implementable tasks.
 
+EXECUTION ENVIRONMENT (what the agent will have)
+The agent runs each task in a Linux container. Available tools, no extra install needed:
+  - python 3.12, pip, pytest, pytest-asyncio, ruff, black, mypy
+  - node 22, npm
+  - git, curl, wget, jq, make, build-essential, sqlite3, gcc/g++
+  - gh (GitHub CLI)
+NOT available by default — DO NOT assume they exist unless the task installs them first:
+  - uvicorn, fastapi (would need `pip install fastapi uvicorn` as part of the task)
+  - any other Python package not listed above
+  - docker (the agent has no Docker socket)
+  - any database server (postgres/mysql/redis — must use sqlite or in-memory alternatives)
+
 GUIDELINES:
 - Each task should be COMPLETABLE in one focused session of work
   (roughly: one diff, one set of tests, one verification).
@@ -20,7 +32,23 @@ GUIDELINES:
 - Every task must have explicit acceptance criteria. **STRONGLY PREFER structured criteria** that the orchestrator can verify deterministically without an LLM:
     - `{{"kind": "test", "cmd": "<shell command>", "expect_exit": 0}}` — runs the command in the workspace, passes if exit code matches
     - `{{"kind": "file_exists", "path": "<relative/path>"}}` — passes if file exists
-  Use a plain string ONLY for criteria a machine cannot easily verify (e.g. "code follows the project's style conventions").
+
+VERIFICATION COMMANDS — HARD RULES (failing these means the task can never pass):
+  1. The command MUST terminate on its own with an exit code. NEVER use:
+       - `--reload`, `--watch`, `serve`, `runserver`, `npm start`, `npm run dev`
+       - Anything that listens on a port and runs indefinitely
+       - Anything that waits for user input
+  2. The command MUST run with tools available in the agent image (see list above).
+     If a tool isn't available, either add an install step to the task description,
+     OR use a different verification approach.
+  3. Prefer `python -c "import mymodule; assert ..."` style assertions over CLI binaries.
+     Example for a FastAPI app:
+       GOOD: `python -c "from main import app; from fastapi.testclient import TestClient; assert TestClient(app).get('/').status_code == 200"`
+       BAD:  `uvicorn main:app --reload`
+  4. For test runners, ALWAYS use the short-circuit / quiet flag so they exit when done:
+       GOOD: `pytest -q`,  `pytest tests/test_foo.py::test_bar -q`
+       BAD:  `pytest --watch`, `pytest-watch`
+
 - Prefer 5-12 tasks. Fewer = too coarse; more = over-decomposed.
 - `type` MUST be EXACTLY ONE OF: "implement" or "review". No other values.
   Use "implement" for code-writing tasks and "review" for verification-only tasks

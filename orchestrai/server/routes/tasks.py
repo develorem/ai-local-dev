@@ -258,9 +258,20 @@ def retry_task(task_id: str, conn=Depends(db_dep)):
         raise HTTPException(404)
     if row["status"] != "failed":
         raise HTTPException(409, detail={"error": {"code": "not_in_failed_state"}})
+    # Clear EVERY field that could keep the claim query from picking this up:
+    # status, attempt_count, error, finished_at, assigned_agent_id, lease_expires_at.
+    # Forgetting any one of these strands the task in 'ready' but unclaimable.
     conn.execute(
-        "UPDATE tasks SET status='ready', attempt_count=0, error=NULL, "
-        "finished_at=NULL WHERE id = ?",
+        """
+        UPDATE tasks
+        SET status            = 'ready',
+            attempt_count     = 0,
+            error             = NULL,
+            finished_at       = NULL,
+            assigned_agent_id = NULL,
+            lease_expires_at  = NULL
+        WHERE id = ?
+        """,
         (task_id,),
     )
     emit(conn, "task.retried", "task", task_id,
@@ -414,7 +425,27 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
     elif outcome == "fix_needed":
         # Retry path — back to ready, lease cleared, agent unassigned
         if row["attempt_count"] >= row["max_attempts"]:
-            new_status = "failed"
+            # Out of retries. Before declaring failed, try ONE self-repair pass:
+            # spawn a `revise` task pointed at this failed task so the agent can
+            # rewrite the description/criteria and re-queue. Only do this for
+            # implement/review tasks (plan/discuss/revise tasks aren't auto-repairable
+            # in the same way), and only ONCE per task (loop guard).
+            existing_payload = json_loads(row["payload"], {})
+            already_repaired = bool(existing_payload.get("repair_attempted"))
+            repairable_types = {"implement", "review"}
+            if row["type"] in repairable_types and not already_repaired:
+                _spawn_task_repair(conn, row)
+                # Mark this task failed for now; the repair task will PATCH + retry it.
+                new_status = "failed"
+                # Set the loop-guard flag in payload so the next failure (if any)
+                # doesn't try to repair again.
+                existing_payload["repair_attempted"] = True
+                conn.execute(
+                    "UPDATE tasks SET payload = ? WHERE id = ?",
+                    (json_dumps(existing_payload), task_id),
+                )
+            else:
+                new_status = "failed"
         else:
             new_status = "ready"
     elif outcome == "failed":
@@ -561,3 +592,36 @@ def _insert_question(conn, task_id, kind, prompt_md, options) -> str:
         (qid, task_id, kind, prompt_md, json_dumps(options), utcnow_iso()),
     )
     return qid
+
+
+def _spawn_task_repair(conn, failed_row) -> str:
+    """Create a `revise` task whose payload tells the agent to repair the
+    given failed task. Priority `high` so it gets picked up promptly.
+    """
+    rtid = new_id()
+    now = utcnow_iso()
+    conn.execute(
+        """
+        INSERT INTO tasks (id, project_id, goal_id, type, title, description_md,
+                           status, priority, depends_on, acceptance_criteria,
+                           payload, attempt_count, max_attempts, created_at)
+        VALUES (?, ?, ?, 'revise', ?, ?, 'ready', 'high', '[]', '[]', ?, 0, 2, ?)
+        """,
+        (rtid, failed_row["project_id"], failed_row["goal_id"],
+         f"Repair: {failed_row['title']}",
+         (f"Auto-spawned because task `{failed_row['title']}` failed after "
+          f"{failed_row['max_attempts']} attempts. Diagnose the failure and "
+          f"rewrite the task so a fresh attempt can succeed."),
+         json_dumps({"failed_task_id": failed_row["id"]}),
+         now),
+    )
+    emit(conn, "task.created", "task", rtid,
+         project_id=failed_row["project_id"],
+         goal_id=failed_row["goal_id"], task_id=rtid, actor="system",
+         detail={"type": "revise", "mode": "task_repair",
+                 "failed_task_id": failed_row["id"]})
+    emit(conn, "task.repair_spawned", "task", failed_row["id"],
+         project_id=failed_row["project_id"],
+         goal_id=failed_row["goal_id"], task_id=failed_row["id"], actor="system",
+         detail={"repair_task_id": rtid})
+    return rtid
