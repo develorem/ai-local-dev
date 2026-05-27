@@ -357,7 +357,22 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
     new_status = None
     plan_id = None
 
-    if row["type"] in ("plan", "revise") and outcome == "success":
+    # A revise task can be in two modes:
+    #   - PLAN revise: result contains plan_md/tasks → create new plan version
+    #   - TASK repair: result contains verdict ('rewrite' or 'escalate_to_human')
+    #     and the agent has already PATCHed + retried the failed task. Just
+    #     mark this revise task as done; no plan creation, no approval question.
+    is_task_repair = (
+        row["type"] == "revise"
+        and outcome == "success"
+        and isinstance(result, dict)
+        and "verdict" in result
+        and "failed_task_id" in result
+    )
+    if is_task_repair:
+        new_status = "done"
+
+    elif row["type"] in ("plan", "revise") and outcome == "success":
         # Plan tasks: persist a plan row + open a plan_approval question
         plan_md = result.get("plan_md", "")
         task_outline = result.get("tasks", [])
