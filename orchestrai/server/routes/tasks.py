@@ -324,7 +324,7 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
     new_status = None
     plan_id = None
 
-    if row["type"] == "plan" and outcome == "success":
+    if row["type"] in ("plan", "revise") and outcome == "success":
         # Plan tasks: persist a plan row + open a plan_approval question
         plan_md = result.get("plan_md", "")
         task_outline = result.get("tasks", [])
@@ -337,12 +337,16 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
                                  q.get("prompt_md", ""), q.get("options", []))
             new_status = "blocked_on_human"
         else:
-            # Find next plan version
+            # Find next plan version. Supersede any prior draft.
             prev = conn.execute(
                 "SELECT MAX(version) AS v FROM plans WHERE goal_id = ?",
                 (row["goal_id"],),
             ).fetchone()
             next_version = (prev["v"] or 0) + 1
+            conn.execute(
+                "UPDATE plans SET status='superseded' WHERE goal_id = ? AND status='draft'",
+                (row["goal_id"],),
+            )
             plan_id = new_id()
             conn.execute(
                 """

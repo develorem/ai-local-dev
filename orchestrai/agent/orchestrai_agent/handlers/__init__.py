@@ -4,11 +4,19 @@ and submits a result via hub.task_result(...)."""
 from orchestrai_agent.handlers.plan import handle_plan
 from orchestrai_agent.handlers.implement import handle_implement
 from orchestrai_agent.handlers.review import handle_review
+from orchestrai_agent.handlers.discuss import handle_discuss
+from orchestrai_agent.handlers.revise import handle_revise
+from orchestrai_agent.handlers.pr_review import handle_review_pr
+from orchestrai_agent.handlers.ci_fix import handle_ci_failure
 
 HANDLERS = {
     "plan": handle_plan,
     "implement": handle_implement,
     "review": handle_review,
+    "discuss": handle_discuss,
+    "revise": handle_revise,
+    "review_pr": handle_review_pr,
+    "respond_to_ci_failure": handle_ci_failure,
 }
 
 

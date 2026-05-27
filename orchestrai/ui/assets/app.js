@@ -463,11 +463,80 @@ route('/tasks/:task_id', async ({ task_id }) => {
 route('/vault', async () => {
   setActiveNav('vault');
   setBreadcrumb([{ label: 'Vault' }]);
-  $('#content').innerHTML = `
-    <h1>Key Vault</h1>
-    <p class="muted">Secrets vault — coming in Phase 5. The schema is in place; UI not yet wired.</p>
+  const content = $('#content');
+  content.innerHTML = `
+    <h1>Key Vault <button id="add-secret">+ Add Secret</button></h1>
+    <p class="muted">Names + metadata are stored here. Values are write-only — never shown after creation. Agents fetch values per-task via authenticated endpoint with full audit.</p>
+    <div id="secrets-list"></div>
   `;
+  $('#add-secret').onclick = () => openSecretModal();
+  await refreshSecrets();
 });
+
+async function refreshSecrets() {
+  const list = $('#secrets-list');
+  if (!list) return;
+  const data = await api('/secrets');
+  list.innerHTML = '';
+  if (!data.items.length) {
+    list.appendChild(el('p', { class: 'muted' }, 'No secrets yet.'));
+    return;
+  }
+  for (const s of data.items) {
+    list.appendChild(el('div', { class: 'card' },
+      el('div', { class: 'card-row' },
+        el('div', { class: 'grow' },
+          el('div', {}, el('strong', {}, s.name),
+            ' · ', el('span', { class: 'muted' }, `scope: ${s.scope}`)),
+          el('div', { class: 'muted' },
+            `${s.description || '(no description)'} · accessed ${s.access_count} times · ` +
+            `last ${s.last_accessed_at ? fmtTime(s.last_accessed_at) : 'never'}`)),
+        el('button', { class: 'secondary',
+          onClick: async () => {
+            const newVal = prompt(`Rotate ${s.name} — enter new value (write-only):`);
+            if (newVal !== null) {
+              await api(`/secrets/${s.name}`, { method: 'PATCH', body: { value: newVal } });
+              refreshSecrets();
+            }
+          }}, 'Rotate'),
+        el('button', { class: 'secondary',
+          onClick: async () => {
+            if (!confirm(`Delete ${s.name}?`)) return;
+            await api(`/secrets/${s.name}`, { method: 'DELETE' });
+            refreshSecrets();
+          }}, 'Delete'))));
+  }
+}
+
+function openSecretModal() {
+  const modal = el('div', { class: 'card', style: 'max-width:600px;margin:24px auto;' },
+    el('h2', {}, 'New Secret'),
+    el('form', { class: 'form-grid', onSubmit: async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      try {
+        await api('/secrets', { method: 'POST', body: {
+          name: f.name.value.trim().toUpperCase(),
+          value: f.value.value,
+          description: f.description.value,
+          scope: f.scope.value || 'global',
+        }});
+        location.hash = '#/vault';
+        await refreshSecrets();
+      } catch (err) { alert(err.message); }
+    }},
+      el('label', {}, 'Name (UPPER_SNAKE_CASE)',
+        el('input', { name: 'name', type: 'text', required: true, pattern: '[A-Z][A-Z0-9_]*' })),
+      el('label', {}, 'Value (write-only)',
+        el('input', { name: 'value', type: 'password', required: true })),
+      el('label', {}, 'Description',
+        el('input', { name: 'description', type: 'text' })),
+      el('label', {}, 'Scope (e.g. "global" or "project:01H...")',
+        el('input', { name: 'scope', type: 'text', value: 'global' })),
+      el('button', { type: 'submit' }, 'Save')));
+  $('#content').innerHTML = '';
+  $('#content').appendChild(modal);
+}
 
 // -------- Boot ----------------------------------------------------------
 async function boot() {
