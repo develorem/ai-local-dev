@@ -1,0 +1,41 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /opt/orchestrai-agent
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl wget jq make build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js + npm — for js/ts project work
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI — for PR review tasks (phase 6)
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Project-work Python deps available out of the box
+RUN pip install --no-cache-dir \
+    httpx pydantic \
+    pytest pytest-asyncio ruff black mypy \
+    requests sqlalchemy alembic
+
+# Install the agent package
+COPY agent /opt/orchestrai-agent
+RUN pip install --no-cache-dir -e /opt/orchestrai-agent
+
+# Workspace for clones
+WORKDIR /workspace
+
+ENV ORCHESTRAI_HUB_URL=http://hub:8080 \
+    OLLAMA_URL=http://ollama:11434
+
+CMD ["python", "-m", "orchestrai_agent"]

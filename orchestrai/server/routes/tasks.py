@@ -285,3 +285,170 @@ def post_task_event(task_id: str, body: dict, conn=Depends(db_dep)):
          detail=detail)
     conn.commit()
     return {"ok": True}
+
+
+@router.post("/{task_id}/result")
+def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
+    """Agent submits the final result of a task.
+
+    The Hub dispatches per task type:
+      - plan: store plan row + create approval Question + task -> blocked_on_human
+      - implement / review / review_pr / respond_to_ci_failure: success -> done;
+        fix_needed -> ready (retry); needs_human -> blocked_on_human with a question
+      - discuss / revise: stored on result; status moves to done unless outcome says otherwise
+    """
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    if row["status"] not in ("in_progress", "review"):
+        raise HTTPException(409, detail={"error": {
+            "code": "wrong_state",
+            "message": f"cannot accept result while status={row['status']}",
+        }})
+
+    body = body or {}
+    outcome = body.get("outcome", "success")
+    result = body.get("result", {})
+    questions = body.get("questions", []) or []
+    notes = body.get("notes_md")
+    now = utcnow_iso()
+
+    # Common: stash result + (optionally) notes
+    if notes:
+        conn.execute(
+            "UPDATE tasks SET notes = CASE WHEN notes='' THEN ? "
+            "                              ELSE notes || char(10) || ? END WHERE id = ?",
+            (f"[{now}] {notes}", f"[{now}] {notes}", task_id),
+        )
+
+    new_status = None
+    plan_id = None
+
+    if row["type"] == "plan" and outcome == "success":
+        # Plan tasks: persist a plan row + open a plan_approval question
+        plan_md = result.get("plan_md", "")
+        task_outline = result.get("tasks", [])
+        plan_questions = result.get("questions", []) or []
+
+        # If the planner asked clarifying questions, stay blocked_on_human without writing a plan
+        if plan_questions and not plan_md:
+            for q in plan_questions:
+                _insert_question(conn, task_id, q.get("kind", "clarification"),
+                                 q.get("prompt_md", ""), q.get("options", []))
+            new_status = "blocked_on_human"
+        else:
+            # Find next plan version
+            prev = conn.execute(
+                "SELECT MAX(version) AS v FROM plans WHERE goal_id = ?",
+                (row["goal_id"],),
+            ).fetchone()
+            next_version = (prev["v"] or 0) + 1
+            plan_id = new_id()
+            conn.execute(
+                """
+                INSERT INTO plans (id, goal_id, version, content_md, task_outline,
+                                   status, created_at)
+                VALUES (?, ?, ?, ?, ?, 'draft', ?)
+                """,
+                (plan_id, row["goal_id"], next_version,
+                 plan_md, json_dumps(task_outline), now),
+            )
+            # Move the goal to 'planning' if not already
+            if row["goal_id"]:
+                conn.execute(
+                    "UPDATE goals SET status='planning', updated_at=? "
+                    "WHERE id = ? AND status IN ('submitted','planning','active')",
+                    (now, row["goal_id"]),
+                )
+            # Approval question
+            qid = _insert_question(
+                conn, task_id, "plan_approval",
+                f"Plan v{next_version} is ready for review. Approve to instantiate "
+                f"{len(task_outline)} tasks; reject to discard; or open a discussion.",
+                [
+                    {"label": "Approve", "value": "approve"},
+                    {"label": "Approve with edits", "value": "approve_with_edits"},
+                    {"label": "Reject", "value": "reject"},
+                    {"label": "Discuss", "value": "discuss"},
+                ],
+            )
+            conn.execute(
+                "UPDATE plans SET approval_question_id = ? WHERE id = ?",
+                (qid, plan_id),
+            )
+            emit(conn, "plan.created", "plan", plan_id,
+                 project_id=row["project_id"], goal_id=row["goal_id"],
+                 task_id=task_id, agent_id=row["assigned_agent_id"],
+                 actor=f"agent:{row['assigned_agent_id']}" if row['assigned_agent_id'] else 'system',
+                 detail={"version": next_version, "task_count": len(task_outline)})
+            new_status = "blocked_on_human"
+
+    elif outcome == "success":
+        new_status = "done"
+    elif outcome == "fix_needed":
+        # Retry path — back to ready, lease cleared, agent unassigned
+        if row["attempt_count"] >= row["max_attempts"]:
+            new_status = "failed"
+        else:
+            new_status = "ready"
+    elif outcome == "failed":
+        new_status = "failed"
+    elif outcome == "needs_human":
+        new_status = "blocked_on_human"
+    else:
+        raise HTTPException(400, detail={"error": {
+            "code": "bad_outcome", "message": f"unknown outcome '{outcome}'",
+        }})
+
+    # Persist any free-form questions submitted with the result (other than plan_approval handled above)
+    if questions and row["type"] != "plan":
+        for q in questions:
+            _insert_question(conn, task_id, q.get("kind", "clarification"),
+                             q.get("prompt_md", ""), q.get("options", []))
+        if new_status == "done":
+            new_status = "blocked_on_human"
+
+    # Update task row
+    finished_at = now if new_status in ("done", "failed") else None
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status = ?, result = ?, finished_at = ?,
+            assigned_agent_id = CASE WHEN ? IN ('ready','blocked_on_human','blocked_on_dep')
+                                     THEN NULL ELSE assigned_agent_id END,
+            lease_expires_at  = CASE WHEN ? IN ('ready','blocked_on_human','blocked_on_dep')
+                                     THEN NULL ELSE lease_expires_at END
+        WHERE id = ?
+        """,
+        (new_status, json_dumps(result), finished_at, new_status, new_status, task_id),
+    )
+    # If the task is leaving an agent, also free the agent's current_task_id
+    if new_status in ("ready", "blocked_on_human", "blocked_on_dep", "done", "failed"):
+        if row["assigned_agent_id"]:
+            conn.execute(
+                "UPDATE agents SET current_task_id = NULL, status='idle' "
+                "WHERE id = ? AND current_task_id = ?",
+                (row["assigned_agent_id"], task_id),
+            )
+
+    emit(conn, "task.status_changed", "task", task_id,
+         project_id=row["project_id"], goal_id=row["goal_id"],
+         task_id=task_id, agent_id=row["assigned_agent_id"],
+         actor=f"agent:{row['assigned_agent_id']}" if row['assigned_agent_id'] else 'system',
+         detail={"from": row["status"], "to": new_status, "outcome": outcome})
+    conn.commit()
+
+    return {"ok": True, "status": new_status, "plan_id": plan_id}
+
+
+def _insert_question(conn, task_id, kind, prompt_md, options) -> str:
+    qid = new_id()
+    conn.execute(
+        """
+        INSERT INTO questions (id, task_id, kind, prompt_md, options_json,
+                               status, created_at)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)
+        """,
+        (qid, task_id, kind, prompt_md, json_dumps(options), utcnow_iso()),
+    )
+    return qid

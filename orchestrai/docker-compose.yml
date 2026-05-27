@@ -1,9 +1,13 @@
-# OrchestrAi — Phase 2 compose
+# OrchestrAi compose
 #
-# Brings up the Hub + Ollama. Agent is Phase 3 (not yet implemented).
+# Brings up Hub + Ollama + one Agent.
 # Run:   docker compose up -d
 # UI:    http://localhost:8080
 # API:   http://localhost:8080/api/health
+#
+# For multi-agent or multi-host setups: duplicate the `agent` service block
+# with a different container_name and AGENT_NAME, or deploy Dockerfile.agent
+# on another machine and set ORCHESTRAI_HUB_URL to the Hub's reachable URL.
 
 services:
   ollama:
@@ -34,7 +38,6 @@ services:
     environment:
       OLLAMA_URL: http://ollama:11434
       DATA_DIR: /data
-      MASTER_KEY_PATH: /run/secrets/master_key
     volumes:
       - ./data:/data
     ports:
@@ -42,6 +45,28 @@ services:
     networks:
       - orchestrai-net
     restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: orchestrai-agent
+    depends_on:
+      - hub
+      - ollama
+    environment:
+      ORCHESTRAI_HUB_URL: http://hub:8080
+      OLLAMA_URL: http://ollama:11434
+      AGENT_NAME: "agent@${COMPUTERNAME:-local}"
+      MODEL_PRIMARY: qwen2.5-coder:14b
+      INFERENCE_NUM_CTX: "16384"
+    networks:
+      - orchestrai-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
 
 volumes:
   ollama-models:
