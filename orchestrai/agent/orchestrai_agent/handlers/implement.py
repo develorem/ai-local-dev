@@ -48,84 +48,128 @@ def _format_criteria(criteria: list) -> str:
     return "\n".join(out)
 
 
-def _retry_section(task: dict) -> str:
-    """Produce a prominent block enumerating prior failures and demanding a
-    different approach. Empty string on the first attempt — added only when
-    attempt_count > 0 so we don't add noise to first-try prompts.
+# Retry context is the single biggest unbounded source of context bloat. Old
+# code emitted ~22 KB on multi-attempt failures (5 stamped notes × ~500 chars,
+# 2 commands × ~3 KB outputs, all prior files × ~2.5 KB tails, ~1.5 KB rules
+# prose). Now hard-capped so the model still gets the *useful* information:
+# the last failing command's actual error message, a one-line summary of each
+# prior attempt, and the on-disk contents of files the last attempt touched.
+_RETRY_BUDGET_TOTAL = 4000          # whole retry block (rules + outputs + files)
+_RETRY_LAST_CMD_CAP = 1400          # stderr+stdout of the SINGLE last failure
+_RETRY_PRIOR_SUMMARY_LINES = 3      # how many stamped notes to enumerate
+_RETRY_PRIOR_SUMMARY_LINE_CAP = 200 # truncate each stamped note
+_RETRY_PRIOR_FILE_CAP = 1200        # per-file tail when prior_files supplied
 
-    The notes already contain per-attempt stamped reasons. We re-render them
-    here at top-level so the LLM can't miss them, plus include the actual
-    stdout/stderr from the most recent failing verification command (where
-    the real error message lives — e.g. an AssertionError with the actual
-    vs expected values), plus explicit guidance.
+_RETRY_RULES = (
+    "RULES FOR THIS RETRY:\n"
+    "- Do NOT repeat the previous approach. The error above tells you what to fix.\n"
+    "- AssertionError actual==expected: if spec doesn't pin the value, fix the\n"
+    "  TEST (use a property check); if spec does, fix the implementation.\n"
+    "- ModuleNotFoundError: the package is missing from the project tool list —\n"
+    "  ask via `questions[]`, do NOT pip-install inline.\n"
+    "- 'corrupt patch' / 'does not apply': use `files[]` with full content, not `diff`.\n"
+    "- exit 127 (command not found): pick a different verification approach.\n"
+    "- Stuck? Surface a `questions[]` entry instead of resubmitting the same broken output."
+)
+
+
+def _last_failing_command(task: dict) -> Optional[str]:
+    """Return a single rendered block for the LAST failing command from the
+    previous attempt — that's where the real signal is (an AssertionError,
+    a ModuleNotFoundError, etc.). Earlier failed commands are skipped."""
+    result = task.get("result") or {}
+    last_fail: Optional[dict] = None
+    for c in (result.get("commands_run") or []):
+        if not isinstance(c, dict):
+            continue
+        if int(c.get("exit", 0)) == 0 and not c.get("timed_out"):
+            continue
+        last_fail = c
+    if not last_fail:
+        return None
+    cmd = last_fail.get("cmd", "(unknown)")
+    err = (last_fail.get("stderr") or "").strip()
+    out = (last_fail.get("stdout") or "").strip()
+    exit_code = last_fail.get("exit", "?")
+    timed_out = last_fail.get("timed_out", False)
+    head = f"$ {cmd}\n[exit={exit_code}{', TIMEOUT' if timed_out else ''}]"
+    # Prefer stderr — that's where Python tracebacks and pytest failures go.
+    body_parts: list[str] = []
+    remaining = _RETRY_LAST_CMD_CAP
+    if err:
+        snippet = err[-min(remaining, len(err)):]
+        body_parts.append(f"--- stderr ---\n{snippet}")
+        remaining -= len(snippet)
+    if out and remaining > 200:
+        snippet = out[-min(remaining, len(out)):]
+        body_parts.append(f"--- stdout ---\n{snippet}")
+    return head + ("\n" + "\n".join(body_parts) if body_parts else "")
+
+
+def _prior_summary(task: dict) -> str:
+    """Last N stamped notes, each truncated, as a compact summary."""
+    notes = (task.get("notes") or "").strip()
+    lines = [ln for ln in notes.splitlines() if ln.startswith("[")]
+    if not lines:
+        return "(no specific failure reasons recorded)"
+    out: list[str] = []
+    for ln in lines[-_RETRY_PRIOR_SUMMARY_LINES:]:
+        out.append(ln if len(ln) <= _RETRY_PRIOR_SUMMARY_LINE_CAP
+                   else ln[:_RETRY_PRIOR_SUMMARY_LINE_CAP] + "…")
+    return "\n".join(out)
+
+
+def _build_retry_block(task: dict, prior_files: Optional[dict] = None) -> str:
+    """Return the entire retry-context block bounded by `_RETRY_BUDGET_TOTAL`.
+
+    Combines: header + last-failing-command output + prior-attempt summaries
+    + on-disk content of files the last attempt modified. Empty string on
+    first attempt.
     """
     attempts = int(task.get("attempt_count") or 0)
     if attempts <= 0:
         return ""
 
-    notes = (task.get("notes") or "").strip()
-    failure_lines = [ln for ln in notes.splitlines() if ln.startswith("[")][-5:]
-    failure_block = "\n".join(failure_lines) or "(no specific failure reasons recorded)"
+    last_cmd = _last_failing_command(task)
+    summary = _prior_summary(task)
+    parts = [
+        f"▲ RETRY (attempt {attempts + 1}) — fix the LAST FAILURE below, do not "
+        f"redo the whole task ▲"
+    ]
+    if last_cmd:
+        parts.append("LAST FAILING COMMAND (read the error here):\n```\n"
+                     + last_cmd + "\n```")
+    parts.append("PRIOR ATTEMPT SUMMARIES:\n" + summary)
+    parts.append(_RETRY_RULES)
+    block = "\n\n".join(parts) + "\n\n"
 
-    # Grab the most recent failed command's stdout/stderr from the previous
-    # attempt's result. This is what tells the LLM e.g. WHICH assertion failed
-    # — far more useful than the generic "verification commands failed" note.
-    last_result = task.get("result") or {}
-    cmd_outputs: list[str] = []
-    for c in (last_result.get("commands_run") or []):
-        if not isinstance(c, dict):
-            continue
-        if int(c.get("exit", 0)) == 0 and not c.get("timed_out"):
-            continue
-        cmd = c.get("cmd", "(unknown)")
-        out = (c.get("stdout") or "").strip()
-        err = (c.get("stderr") or "").strip()
-        exit_code = c.get("exit", "?")
-        timed_out = c.get("timed_out", False)
-        body = f"$ {cmd}\n[exit={exit_code}{', TIMEOUT' if timed_out else ''}]"
-        if err:
-            body += f"\n--- stderr ---\n{err[-1500:]}"
-        if out:
-            body += f"\n--- stdout ---\n{out[-1500:]}"
-        cmd_outputs.append(body)
-    cmd_outputs_block = (
-        "\n\nRAW OUTPUT OF FAILING COMMAND(S) FROM LAST ATTEMPT (READ THIS — the\n"
-        "actual error / assertion message tells you what to fix):\n```\n"
-        + ("\n\n".join(cmd_outputs[:2]))
-        + "\n```"
-    ) if cmd_outputs else ""
+    if prior_files:
+        # Whatever budget is left after the rules+errors goes to file contents.
+        remaining = max(400, _RETRY_BUDGET_TOTAL - len(block))
+        per_file = min(_RETRY_PRIOR_FILE_CAP,
+                       max(200, remaining // max(1, len(prior_files))))
+        snippets: list[str] = []
+        used = 0
+        for path, content in prior_files.items():
+            if used >= remaining:
+                snippets.append(f"--- {path} (omitted, retry budget exhausted) ---")
+                continue
+            tail = content[-per_file:] if content else "(empty)"
+            snippets.append(f"--- {path} (current on-disk content) ---\n{tail}")
+            used += len(tail) + len(path) + 40
+        block += (
+            "CURRENT CONTENT OF FILES THE LAST ATTEMPT MODIFIED (edit these, "
+            "do not rewrite from scratch):\n```\n"
+            + "\n\n".join(snippets) + "\n```\n\n"
+        )
 
-    return (
-        "▲▲▲ PREVIOUS ATTEMPT(S) FAILED — READ THIS BEFORE ANYTHING ELSE ▲▲▲\n"
-        f"This is attempt {attempts + 1}. Earlier attempts produced the following errors:\n"
-        f"{failure_block}"
-        f"{cmd_outputs_block}\n\n"
-        "MANDATORY RULES FOR THIS ATTEMPT:\n"
-        "  1. Do NOT repeat the same approach that failed above. Try something different.\n"
-        "  2. READ the raw failing-command output above (if any). The specific error\n"
-        "     message — `AssertionError: assert 7 == 42`, `ModuleNotFoundError: No module\n"
-        "     named 'X'`, `SyntaxError: ...`, etc. — tells you precisely what to fix.\n"
-        "     Don't rewrite unrelated files; fix the SPECIFIC thing that broke.\n"
-        "  3. When a pytest assertion fails with `assert actual == expected`:\n"
-        "       - If the implementation matches the spec, the EXPECTED value in the test\n"
-        "         is probably wrong (LLMs often guess test values). Update the test to\n"
-        "         match the actual value, OR rewrite the test as a property check that\n"
-        "         doesn't depend on a specific numeric output.\n"
-        "       - If the spec is clear on the value (e.g. \"add(2,3) returns 5\") then\n"
-        "         the implementation is wrong. Fix the implementation.\n"
-        "  4. If a previous attempt's diff was rejected (`corrupt patch`, `does not apply`),\n"
-        "     DO NOT produce a diff this time — use the `files[]` array with full file\n"
-        "     contents instead.\n"
-        "  5. If exit 127 (`command not found`), the tool is not installed. Either add a\n"
-        "     `pip install` / `npm install` step EARLIER in `commands_to_run`, or use a\n"
-        "     different verification (e.g. `python -c \"import mymodule\"`).\n"
-        "  6. If a verification command hangs (uvicorn --reload, npm start), it is NOT a\n"
-        "     valid acceptance check. Use a one-shot import/assertion instead, AND surface\n"
-        "     a `questions[]` entry asking the human to fix the criterion.\n"
-        "  7. If you cannot find a different approach, surface a clarifying question in\n"
-        "     `questions[]` rather than producing the same broken output again.\n"
-        "▲▲▲\n\n"
-    )
+    # Final hard cap — extremely defensive; the bookkeeping above keeps us
+    # under budget but if anything slips through, truncate the head (we'd
+    # rather lose the rules than the last error message).
+    if len(block) > _RETRY_BUDGET_TOTAL:
+        overflow = len(block) - _RETRY_BUDGET_TOTAL
+        block = "[…retry context truncated…]\n" + block[overflow + 32:]
+    return block
 
 
 def _kind_hint(task: dict) -> str:
@@ -178,19 +222,9 @@ def _tools_block(project: dict) -> str:
 
 def _render_pass1(project: dict, task: dict, workspace_tree: str,
                   prior_files: dict | None = None) -> tuple[str, dict]:
-    # On retry, prior_files holds {path: contents} for the files the previous
-    # attempt modified. We splice them into the retry section so the LLM sees
-    # what's currently on disk instead of regenerating from scratch.
-    rs = _retry_section(task)
-    if rs and prior_files:
-        snippets = []
-        for path, content in prior_files.items():
-            snippets.append(f"--- {path} (CURRENT CONTENT) ---\n{content[-2500:]}")
-        rs += (
-            "CURRENT CONTENTS OF FILES YOU MODIFIED LAST ATTEMPT (they are still there;\n"
-            "EDIT them, do not rewrite from scratch and reintroduce the same bug):\n```\n"
-            + "\n\n".join(snippets) + "\n```\n\n"
-        )
+    # Retry context is now bounded and folded together with prior_files
+    # inside _build_retry_block (hard cap _RETRY_BUDGET_TOTAL).
+    rs = _build_retry_block(task, prior_files=prior_files)
     project_description = project.get("description_md") or "(no description)"
     project_context = _indent(project.get("context_md") or "(no context)")
     task_description = task.get("description_md") or "(no description)"
@@ -247,7 +281,7 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
     project_context = _indent(project.get("context_md") or "(no context)")
     task_description = task.get("description_md") or "(no description)"
     criteria = _format_criteria(task.get("acceptance_criteria") or [])
-    retry = _retry_section(task)
+    retry = _build_retry_block(task)
     http_block = _http_ports_block(task)
     tools_block = _tools_block(project)
     test_block = _test_block(task)
