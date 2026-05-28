@@ -170,6 +170,9 @@ class AgentRegister(_Base):
     host: Optional[str] = None
     version: str
     capabilities: list[str] = Field(default_factory=list)
+    # Host ports mapped into the agent container, available for hosting
+    # demo/feedback servers. Identity-mapped (container port == host port).
+    http_ports: list[int] = Field(default_factory=list)
 
 
 class AgentRegisterResponse(_Base):

@@ -255,12 +255,29 @@ route('/agents/:agent_id', async ({ agent_id }) => {
   content.innerHTML = '';
   content.appendChild(el('h1', {}, a.name));
 
+  // Separate `port:NNNN:proto` advertisements from raw capabilities so we
+  // can render the ports as clickable links to whatever the agent is hosting.
+  const allCaps = a.capabilities || [];
+  const portCaps = allCaps.filter(c => /^port:\d+(:|$)/.test(c));
+  const otherCaps = allCaps.filter(c => !/^port:\d+(:|$)/.test(c));
+  const portsCell = portCaps.length
+    ? el('div', { class: 'agent-ports' },
+        ...portCaps.flatMap((c, i) => {
+          const m = c.match(/^port:(\d+)(?::(\w+))?/);
+          const port = m[1];
+          const proto = (m[2] || 'http').toLowerCase();
+          const url = `${proto.startsWith('http') ? proto : 'http'}://localhost:${port}`;
+          const link = el('a', { href: url, target: '_blank', rel: 'noopener' }, url);
+          return i === 0 ? [link] : [' · ', link];
+        }))
+    : el('div', { class: 'muted' }, '—');
   const kvs = el('div', { class: 'kvs' });
   for (const [k, v] of [
     ['Status', pill(a.status)],
     ['Host', a.host || '—'],
     ['Version', a.version],
-    ['Capabilities', (a.capabilities || []).join(', ') || '—'],
+    ['Hosting ports', portsCell],
+    ['Capabilities', otherCaps.join(', ') || '—'],
     ['Registered', fmtTime(a.registered_at)],
     ['Last heartbeat', fmtTime(a.last_heartbeat_at)],
   ]) {

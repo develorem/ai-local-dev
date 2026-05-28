@@ -25,6 +25,20 @@ NOT available by default — DO NOT assume they exist unless the task installs t
   - docker (the agent has no Docker socket)
   - any database server (postgres/mysql/redis — must use sqlite or in-memory alternatives)
 
+HOST-REACHABLE HTTP PORTS (for demo / human-feedback servers)
+{http_ports_block}
+  When a goal calls for a running demo a human can visit:
+    - Pick ONE of the ports above; bind the server to 0.0.0.0:<port> in-container.
+    - Start the server detached so verification still terminates. The agent
+      image ships `orchestrai-serve`, which spawns the command in the
+      background, polls the port until it responds, and exits 0/1:
+        orchestrai-serve --port 6800 -- uvicorn main:app --host 0.0.0.0 --port 6800
+      Use it as the verification command for "server is reachable" criteria.
+    - Reference it in acceptance criteria with curl, e.g.:
+        {{"kind": "test", "cmd": "curl -fsS http://localhost:6800/health", "expect_exit": 0}}
+    - DO NOT bind to 127.0.0.1 — it isn't reachable from the host.
+    - DO NOT use ports outside the advertised list — only those are mapped.
+
 GUIDELINES:
 - Each task should be COMPLETABLE in one focused session of work
   (roughly: one diff, one set of tests, one verification).

@@ -127,6 +127,24 @@ def _retry_section(task: dict) -> str:
     )
 
 
+def _http_ports_block() -> str:
+    if not config.HTTP_PORTS:
+        return ("HOST-REACHABLE HTTP PORTS: (none available — do not bind any "
+                "server to a port expecting host visibility)")
+    ports_csv = ", ".join(str(p) for p in config.HTTP_PORTS)
+    first = config.HTTP_PORTS[0]
+    return (
+        f"HOST-REACHABLE HTTP PORTS: {ports_csv}\n"
+        f"  If this task hosts a server for human review, bind to "
+        f"{config.HTTP_BIND_HOST}:<port> (NOT 127.0.0.1) on one of those ports.\n"
+        f"  Use `orchestrai-serve --port <port> -- <command...>` to start the\n"
+        f"  server detached AND have the verification command exit 0 once the\n"
+        f"  port is reachable. Example:\n"
+        f"    orchestrai-serve --port {first} -- uvicorn main:app --host 0.0.0.0 --port {first}\n"
+        f"  Users reach the app at http://localhost:<port> on the Docker host."
+    )
+
+
 def _render_pass1(project: dict, task: dict, workspace_tree: str,
                   prior_files: dict | None = None) -> str:
     # On retry, prior_files holds {path: contents} for the files the previous
@@ -153,6 +171,7 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
         acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
         notes_indented=_indent(task.get("notes") or "(none)"),
         retry_section=rs,
+        http_ports_block=_http_ports_block(),
         workspace_tree=workspace_tree,
     )
 
@@ -179,6 +198,7 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
         branch_name=task.get("branch_name") or "(no branch)",
         acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
         retry_section=_retry_section(task),
+        http_ports_block=_http_ports_block(),
         files_to_write_summary=files_summary,
         diff_plan_md=pass1.get("diff_plan_md") or "(no plan provided)",
         files_contents=files_block,

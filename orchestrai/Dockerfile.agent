@@ -32,10 +32,20 @@ RUN pip install --no-cache-dir \
 COPY agent /opt/orchestrai-agent
 RUN pip install --no-cache-dir -e /opt/orchestrai-agent
 
+# Helper for the LLM: spawn a server detached, wait for its port to come up,
+# exit 0 if reachable. Lets verification commands cleanly hand off a running
+# demo to the host without blocking the agent's task loop.
+COPY agent/scripts/orchestrai-serve /usr/local/bin/orchestrai-serve
+RUN chmod +x /usr/local/bin/orchestrai-serve
+
+# Demo/feedback ports — must match docker-compose AGENT_HTTP_PORTS.
+EXPOSE 6800 6801 6802
+
 # Workspace for clones
 WORKDIR /workspace
 
 ENV ORCHESTRAI_HUB_URL=http://hub:6724 \
-    OLLAMA_URL=http://ollama:11434
+    OLLAMA_URL=http://ollama:11434 \
+    AGENT_HTTP_PORTS=6800,6801,6802
 
 CMD ["python", "-m", "orchestrai_agent"]

@@ -16,6 +16,16 @@ class Config:
                        "python,node,git,linux").split(",")
         if c.strip()
     ]
+    # Ports the host has mapped into this container. The agent advertises
+    # these to the Hub so the UI can render clickable links and the LLM
+    # knows which ports it may bind demo / feedback servers to.
+    # Bind in-container to 0.0.0.0:<port>; the host port is identity-mapped.
+    HTTP_PORTS: list[int] = [
+        int(p.strip()) for p in
+        os.environ.get("AGENT_HTTP_PORTS", "").split(",")
+        if p.strip().isdigit()
+    ]
+    HTTP_BIND_HOST: str = os.environ.get("AGENT_HTTP_BIND_HOST", "0.0.0.0")
     POLL_IDLE_SEC: float = float(os.environ.get("AGENT_POLL_IDLE_SEC", "5"))
     HEARTBEAT_DEFAULT_SEC: int = int(os.environ.get("AGENT_HEARTBEAT_SEC", "10"))
     LLM_TIMEOUT_SEC: int = int(os.environ.get("LLM_TIMEOUT_SEC", "300"))

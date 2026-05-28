@@ -31,11 +31,15 @@ class HubClient:
         return r.json()
 
     async def register(self) -> dict:
+        # Advertise mapped HTTP ports as `port:<n>:http` capability strings.
+        # No schema change required on the Hub side — the UI parses these out.
+        port_caps = [f"port:{p}:http" for p in config.HTTP_PORTS]
         body = {
             "name": config.AGENT_NAME,
             "host": config.AGENT_HOST,
             "version": config.AGENT_VERSION,
-            "capabilities": config.CAPABILITIES,
+            "capabilities": config.CAPABILITIES + port_caps,
+            "http_ports": config.HTTP_PORTS,
         }
         r = await self._client.post(f"{self.base}/api/agents/register", json=body)
         r.raise_for_status()

@@ -21,6 +21,15 @@ _PROMPT_TEMPLATE = (PROMPTS_DIR / "planner.md").read_text(encoding="utf-8")
 def _render_prompt(project: dict, goal: dict) -> str:
     context = project.get("context_md") or "(no project context provided)"
     indented = "\n".join("    " + line for line in context.splitlines())
+    if config.HTTP_PORTS:
+        ports_line = ", ".join(str(p) for p in config.HTTP_PORTS)
+        http_ports_block = (
+            f"  HTTP demo ports mapped to the host: {ports_line}\n"
+            f"  (bind to {config.HTTP_BIND_HOST}:<port> in-container; users reach "
+            f"them at http://localhost:<port>)"
+        )
+    else:
+        http_ports_block = "  HTTP demo ports: (none — no host-reachable ports available)"
     return _PROMPT_TEMPLATE.format(
         project_name=project.get("name", "(unnamed project)"),
         project_slug=project.get("slug", ""),
@@ -28,6 +37,7 @@ def _render_prompt(project: dict, goal: dict) -> str:
         project_context_indented=indented,
         goal_title=goal.get("title", "(no title)"),
         goal_description=goal.get("description_md", "(no description)"),
+        http_ports_block=http_ports_block,
     )
 
 

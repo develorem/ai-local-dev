@@ -60,6 +60,15 @@ services:
       AGENT_NAME: "agent@${COMPUTERNAME:-local}"
       MODEL_PRIMARY: qwen2.5-coder:14b
       INFERENCE_NUM_CTX: "16384"
+      # Ports this agent advertises to the Hub for hosting demo/feedback servers.
+      # Identity-mapped through the container; bind in-container to 0.0.0.0:<port>.
+      AGENT_HTTP_PORTS: "6800,6801,6802"
+    ports:
+      # Demo / feedback ports — apps the agent stands up are reachable on the host.
+      # Chosen near 6724 (ORCH) for memorability; outside the 7xxx block.
+      - "6800:6800"
+      - "6801:6801"
+      - "6802:6802"
     networks:
       - orchestrai-net
     restart: unless-stopped
