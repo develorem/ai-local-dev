@@ -22,11 +22,15 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Project-work Python deps available out of the box
+# Project-work Python deps available out of the box.
+# fastapi + uvicorn + jinja2 are here because we expose ports 6800-6802
+# precisely so the agent can host demo/feedback servers — they should be
+# load-bearing infra, not a "remember to pip install" trap for the LLM.
 RUN pip install --no-cache-dir \
     httpx pydantic \
     pytest pytest-asyncio ruff black mypy \
-    requests sqlalchemy alembic
+    requests sqlalchemy alembic \
+    fastapi "uvicorn[standard]" jinja2 python-multipart
 
 # Install the agent package
 COPY agent /opt/orchestrai-agent

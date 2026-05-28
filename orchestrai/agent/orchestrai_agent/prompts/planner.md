@@ -16,12 +16,13 @@ Decompose the goal above into a sequence of concrete implementable tasks.
 EXECUTION ENVIRONMENT (what the agent will have)
 The agent runs each task in a Linux container. Available tools, no extra install needed:
   - python 3.12, pip, pytest, pytest-asyncio, ruff, black, mypy
+  - fastapi, uvicorn[standard], jinja2, python-multipart   (web framework, ready to import)
+  - httpx, requests, pydantic, sqlalchemy, alembic
   - node 22, npm
   - git, curl, wget, jq, make, build-essential, sqlite3, gcc/g++
   - gh (GitHub CLI)
 NOT available by default — DO NOT assume they exist unless the task installs them first:
-  - uvicorn, fastapi (would need `pip install fastapi uvicorn` as part of the task)
-  - any other Python package not listed above
+  - any Python package not listed above (numpy, pillow, pandas, etc. need an install step)
   - docker (the agent has no Docker socket)
   - any database server (postgres/mysql/redis — must use sqlite or in-memory alternatives)
 

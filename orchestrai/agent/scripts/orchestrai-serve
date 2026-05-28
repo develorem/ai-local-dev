@@ -124,9 +124,12 @@ def _start(port: int, wait_sec: float, argv: list[str]) -> int:
         os._exit(0)
 
     # Grandchild: replace fds and exec.
+    # Truncate the log on start — otherwise a previous run's output stays in
+    # the file and badly misleads the fix loop's diagnosis (LLM reads stale
+    # "Serving HTTP on 0.0.0.0..." and concludes the current run is fine).
     os.close(w)
     devnull = os.open(os.devnull, os.O_RDONLY)
-    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     os.dup2(devnull, 0)
     os.dup2(log_fd, 1)
     os.dup2(log_fd, 2)
