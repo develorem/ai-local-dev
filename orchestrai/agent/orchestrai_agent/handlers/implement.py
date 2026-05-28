@@ -20,7 +20,7 @@ from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
 from orchestrai_agent.workspace import (
-    apply_diff, commit_all, ensure_workspace, list_tree, read_files, write_files,
+    apply_diff, commit_all, ensure_workspace, list_tree_relevant, read_files, write_files,
 )
 
 log = logging.getLogger("orchestrai-agent.implement")
@@ -370,7 +370,7 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         })
         return
 
-    tree = list_tree(workspace)
+    tree = list_tree_relevant(workspace, task=task, max_chars=1200)
     await hub.task_event(task_id, "workspace.ready", {
         "path": str(workspace),
         "tree_chars": len(tree),

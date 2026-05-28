@@ -43,24 +43,130 @@ async def ensure_workspace(project_slug: str) -> Path:
     return path
 
 
-def list_tree(workspace: Path, max_files: int = 200) -> str:
-    """Return a textual file tree (paths only) of the workspace.
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv",
+              "dist", "build", ".mypy_cache", ".ruff_cache", "coverage"}
 
-    Skips .git and any common heavy dirs. Capped to avoid blowing prompts.
-    """
-    skip = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv", "dist", "build"}
-    files = []
+
+def _walk_paths(workspace: Path) -> list[str]:
+    """Return all non-skipped file paths in the workspace, POSIX-style."""
+    out: list[str] = []
     for root, dirs, fnames in os.walk(workspace):
-        dirs[:] = [d for d in dirs if d not in skip]
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
         for f in sorted(fnames):
             rel = os.path.relpath(os.path.join(root, f), workspace).replace("\\", "/")
-            files.append(rel)
-            if len(files) >= max_files:
-                files.append(f"... ({max_files}+ files, list truncated)")
-                return "\n".join(files)
+            out.append(rel)
+    return out
+
+
+def list_tree(workspace: Path, max_files: int = 200) -> str:
+    """Unfiltered tree dump. Kept for handlers that don't have a task context
+    (ci_fix). New code should prefer `list_tree_relevant`."""
+    files = _walk_paths(workspace)
     if not files:
         return "(empty workspace)"
+    if len(files) > max_files:
+        return "\n".join(files[:max_files]) + f"\n... ({len(files)}+ files, list truncated)"
     return "\n".join(files)
+
+
+# Files that are nearly always relevant to ANY task — they're how a human
+# orients on a fresh project, and they're small enough not to crowd things.
+_ENTRY_POINT_BASENAMES = {
+    "readme.md", "readme.rst", "readme",
+    "requirements.txt", "requirements.in", "pyproject.toml", "setup.py", "setup.cfg",
+    "package.json", "package-lock.json", "tsconfig.json",
+    "dockerfile", "docker-compose.yml", "docker-compose.yaml", "makefile",
+    "app.py", "main.py", "__main__.py", "__init__.py", "server.py", "wsgi.py",
+    "index.html", "index.js", "index.ts",
+}
+
+
+def _tokenize(text: str) -> set[str]:
+    """Lowercase tokens of length >= 3 from camelCase / snake_case / kebab-case."""
+    import re
+    if not text:
+        return set()
+    parts = re.split(r"[^a-zA-Z0-9]+", text)
+    # split camelCase: "MyClass" -> ["My", "Class"]
+    out: set[str] = set()
+    for p in parts:
+        for sub in re.findall(r"[A-Za-z][a-z0-9]+|[A-Z]+(?=[A-Z]|$)|\d+", p):
+            s = sub.lower()
+            if len(s) >= 3:
+                out.add(s)
+    return out
+
+
+def _score_path(path: str, *, keyword_tokens: set[str],
+                pinned: set[str]) -> int:
+    score = 0
+    if path in pinned:
+        score += 200  # files we know matter — show them first
+    base = path.rsplit("/", 1)[-1].lower()
+    if base in _ENTRY_POINT_BASENAMES:
+        score += 60
+    # Match path stem tokens against task keywords. Cheap substring is fine.
+    p_lower = path.lower()
+    for tok in keyword_tokens:
+        if tok in p_lower:
+            score += 25
+    # Slight bonus for files at the root (more likely to be relevant entry points)
+    if "/" not in path:
+        score += 10
+    return score
+
+
+def list_tree_relevant(workspace: Path, task: Optional[dict] = None,
+                       max_chars: int = 1200) -> str:
+    """Return a relevance-ranked textual tree, capped to `max_chars`.
+
+    Scores each path by:
+      - +200 if pinned (acceptance_criteria file_exists, or prior attempt's
+        files_written/files_modified)
+      - +60 if the basename is a well-known entry point (README, app.py, ...)
+      - +25 per task-keyword token that appears in the path
+      - +10 if the file lives at the workspace root
+    Then takes top-scored paths until we hit `max_chars`, and footers the rest.
+    """
+    paths = _walk_paths(workspace)
+    if not paths:
+        return "(empty workspace)"
+
+    keyword_tokens: set[str] = set()
+    pinned: set[str] = set()
+    if task:
+        keyword_tokens |= _tokenize(task.get("title") or "")
+        keyword_tokens |= _tokenize(task.get("description_md") or "")
+        for crit in (task.get("acceptance_criteria") or []):
+            if isinstance(crit, dict) and crit.get("kind") == "file_exists":
+                p = (crit.get("path") or "").strip().lstrip("/")
+                if p:
+                    pinned.add(p)
+        result = task.get("result") or {}
+        for k in ("files_written", "files_modified"):
+            for p in (result.get(k) or []):
+                if isinstance(p, str):
+                    pinned.add(p)
+
+    # Score, sort by (-score, path) for stable ordering
+    scored = [(p, _score_path(p, keyword_tokens=keyword_tokens, pinned=pinned))
+              for p in paths]
+    scored.sort(key=lambda x: (-x[1], x[0]))
+
+    out_lines: list[str] = []
+    used = 0
+    shown = 0
+    for path, _score in scored:
+        line_cost = len(path) + 1  # newline
+        if used + line_cost > max_chars:
+            break
+        out_lines.append(path)
+        used += line_cost
+        shown += 1
+    remaining = len(paths) - shown
+    if remaining > 0:
+        out_lines.append(f"... ({remaining} more files; ask in pass-1 if you need any)")
+    return "\n".join(out_lines)
 
 
 async def write_files(workspace: Path, files: list[dict]) -> tuple[bool, str, list[str]]:
