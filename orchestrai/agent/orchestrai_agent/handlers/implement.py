@@ -127,14 +127,17 @@ def _build_retry_block(task: dict, prior_files: Optional[dict] = None) -> str:
     + on-disk content of files the last attempt modified. Empty string on
     first attempt.
     """
+    # The claim SQL bumps attempt_count to 1 BEFORE the handler reads it, so
+    # attempts==1 means "this is the first try". Retry context is only useful
+    # from the second try onwards.
     attempts = int(task.get("attempt_count") or 0)
-    if attempts <= 0:
+    if attempts <= 1:
         return ""
 
     last_cmd = _last_failing_command(task)
     summary = _prior_summary(task)
     parts = [
-        f"▲ RETRY (attempt {attempts + 1}) — fix the LAST FAILURE below, do not "
+        f"▲ RETRY (attempt {attempts}) — fix the LAST FAILURE below, do not "
         f"redo the whole task ▲"
     ]
     if last_cmd:
@@ -382,7 +385,9 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
     # than regenerating from a blank slate (which is how identical bugs keep
     # appearing across attempts).
     prior_files: dict[str, str] = {}
-    if int(task.get("attempt_count") or 0) > 0:
+    # Same off-by-one as in _build_retry_block: claim bumps attempt_count to 1
+    # on the first try, so "actually retrying" starts at > 1.
+    if int(task.get("attempt_count") or 0) > 1:
         prev_result = task.get("result") or {}
         prev_paths = (
             (prev_result.get("files_written") or [])
@@ -394,7 +399,8 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         prior_contents, _missing = read_files(workspace, unique_paths, max_chars=12_000)
         prior_files = prior_contents
     pass1_prompt, pass1_sections = _render_pass1(project, task, tree, prior_files=prior_files)
-    await emit_prompt_metrics(hub, task_id, "implementer_pass1", pass1_prompt, pass1_sections)
+    await emit_prompt_metrics(hub, task_id, "implementer_pass1", pass1_prompt,
+                              pass1_sections, kind_hint=_kind_hint(task))
     await hub.task_event(task_id, "llm.call.started", {
         "mode": "implementer_pass1",
         "model": config.DEFAULT_MODEL,
@@ -466,7 +472,8 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
 
     # 4. Pass 2: generate the diff
     pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents)
-    await emit_prompt_metrics(hub, task_id, "implementer_pass2", pass2_prompt, pass2_sections)
+    await emit_prompt_metrics(hub, task_id, "implementer_pass2", pass2_prompt,
+                              pass2_sections, kind_hint=_kind_hint(task))
     await hub.task_event(task_id, "llm.call.started", {
         "mode": "implementer_pass2",
         "model": config.DEFAULT_MODEL,
