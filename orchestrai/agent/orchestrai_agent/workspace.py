@@ -81,7 +81,7 @@ _ENTRY_POINT_BASENAMES = {
 }
 
 
-def _tokenize(text: str) -> set[str]:
+def tokenize(text: str) -> set[str]:
     """Lowercase tokens of length >= 3 from camelCase / snake_case / kebab-case."""
     import re
     if not text:
@@ -95,6 +95,10 @@ def _tokenize(text: str) -> set[str]:
             if len(s) >= 3:
                 out.add(s)
     return out
+
+
+# Backwards-compat alias for the previous private name (used inside this file).
+_tokenize = tokenize
 
 
 def _score_path(path: str, *, keyword_tokens: set[str],

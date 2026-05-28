@@ -19,6 +19,7 @@ from orchestrai_agent.ollama_client import OllamaClient
 from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
+from orchestrai_agent.file_outline import maybe_outline
 from orchestrai_agent.workspace import (
     apply_diff, commit_all, ensure_workspace, list_tree_relevant, read_files, write_files,
 )
@@ -433,10 +434,35 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
     files_to_write = pass1.get("files_to_write_or_modify") or []
     verify_cmds_pass1 = pass1.get("commands_to_run_for_verification") or []
 
-    # 3. Read the requested files from the workspace
+    # 3. Read the requested files from the workspace, outlining any that
+    # exceed the size threshold. Keep names of functions that match task
+    # keywords (and the names of files the LLM said it intends to write to —
+    # those are the ones whose bodies it almost certainly needs to see).
     contents, missing = read_files(workspace, files_to_read)
     if missing:
         await hub.task_event(task_id, "implementer.files_missing", {"missing": missing})
+
+    from orchestrai_agent.workspace import tokenize
+    keep_names = set()
+    keep_names |= tokenize(task.get("title") or "")
+    keep_names |= tokenize(task.get("description_md") or "")
+    for f in (pass1.get("files_to_write_or_modify") or []):
+        if isinstance(f, dict):
+            keep_names |= tokenize(f.get("intent") or "")
+            keep_names |= tokenize((f.get("path") or "").rsplit("/", 1)[-1])
+
+    outline_summary: list[dict] = []
+    for path, raw in list(contents.items()):
+        compacted, info = maybe_outline(path, raw, keep_names)
+        contents[path] = compacted
+        if info["kind"] != "full":
+            outline_summary.append({"path": path, **info})
+    if outline_summary:
+        saved = sum(o["original_chars"] - o["final_chars"] for o in outline_summary)
+        await hub.task_event(task_id, "implementer.files_outlined", {
+            "outlined": outline_summary,
+            "chars_saved": saved,
+        })
 
     # 4. Pass 2: generate the diff
     pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents)

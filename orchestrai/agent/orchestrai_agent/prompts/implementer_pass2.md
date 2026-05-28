@@ -34,6 +34,9 @@ Rules:
 - New/full-rewrite files → `files[]` with full content. Modifications → unified `diff`.
 - Paths are relative, no leading slash. Match existing indent/EOL/import style.
 - Only touch files in pass1's files_to_write_or_modify. `files` or `diff` must be non-empty.
+- If a file body shows `# body elided (N lines)` you do NOT have the original
+  lines — DO NOT diff against it. Either leave that function alone or rewrite
+  the entire file via `files[]`.
 
 {test_block}
 
