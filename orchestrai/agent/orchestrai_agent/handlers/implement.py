@@ -27,6 +27,7 @@ log = logging.getLogger("orchestrai-agent.implement")
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _PASS1_TPL = (PROMPTS_DIR / "implementer_pass1.md").read_text(encoding="utf-8")
 _PASS2_TPL = (PROMPTS_DIR / "implementer_pass2.md").read_text(encoding="utf-8")
+_FIX_TPL = (PROMPTS_DIR / "implementer_fix.md").read_text(encoding="utf-8")
 
 
 def _indent(text: str, prefix: str = "    ") -> str:
@@ -373,27 +374,43 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
     commit_sha = await commit_all(workspace, f"orchestrai: {task.get('title','task')}")
     await hub.task_event(task_id, "workspace.commit", {"sha": commit_sha or "(empty)"})
 
-    # 7. Run verification commands
-    cmd_results = []
-    all_passed = True
-    for cmd in commands:
-        if not isinstance(cmd, str):
-            continue
-        await hub.task_event(task_id, "subprocess.started", {"cmd": cmd})
-        res = await run_subproc(cmd, cwd=str(workspace), timeout_sec=120)
-        cmd_results.append({
-            "cmd": cmd,
-            "exit": res.exit_code,
-            "stdout": res.stdout[-2000:],
-            "stderr": res.stderr[-2000:],
-            "wall_sec": round(res.wall_sec, 2),
-            "timed_out": res.timed_out,
-        })
-        await hub.task_event(task_id, "subprocess.completed", {
-            "cmd": cmd, "exit": res.exit_code, "wall_sec": round(res.wall_sec, 2),
-        })
-        if res.exit_code != 0:
-            all_passed = False
+    # 7. Run verification commands (initial pass)
+    cmd_results = await _run_verification(hub, task_id, commands, str(workspace))
+    all_passed = all(c.get("exit") == 0 and not c.get("timed_out") for c in cmd_results)
+
+    # 7b. Inline fix loop — if verification failed, give the LLM up to MAX_FIX_ITER
+    # tight iterations to fix its own work BEFORE giving up and submitting fix_needed.
+    # Each iteration sees: the actual failing output + the current file contents.
+    fix_history: list[dict] = []
+    if not all_passed:
+        scope_paths = _collect_modified_paths(files, written_paths, files_to_write)
+        for fix_iter in range(1, _MAX_FIX_ITERATIONS + 1):
+            await hub.task_event(task_id, "implementer.fix_loop.iter_start", {
+                "iter": fix_iter, "max_iter": _MAX_FIX_ITERATIONS,
+            })
+            fix_outcome = await _try_inline_fix(
+                hub=hub, ollama=ollama, task=task, project=project,
+                workspace=workspace, scope_paths=scope_paths,
+                cmd_results=cmd_results, iter_num=fix_iter,
+            )
+            fix_history.append(fix_outcome)
+            await hub.task_event(task_id, "implementer.fix_loop.iter_done", {
+                "iter": fix_iter, "applied_files": fix_outcome.get("applied_files") or [],
+                "gave_up": fix_outcome.get("gave_up", False),
+                "diagnosis": (fix_outcome.get("diagnosis_md") or "")[:200],
+            })
+            if fix_outcome.get("gave_up") or not fix_outcome.get("applied_files"):
+                # LLM couldn't help. Stop the loop and let the outer attempt-level
+                # retry take over (with our full retry-section context).
+                break
+            # Re-run the verification commands
+            cmd_results = await _run_verification(hub, task_id, commands, str(workspace))
+            all_passed = all(c.get("exit") == 0 and not c.get("timed_out") for c in cmd_results)
+            if all_passed:
+                # Commit the inline fix so the workspace state is durable
+                fix_sha = await commit_all(workspace, f"orchestrai inline-fix: iter {fix_iter}")
+                await hub.task_event(task_id, "workspace.commit", {"sha": fix_sha or "(empty)"})
+                break
 
     # 8. Result
     outcome = "success" if all_passed else "fix_needed"
@@ -403,11 +420,15 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         "commit_sha": commit_sha,
         "commands_run": cmd_results,
         "files_modified": [f.get("path") for f in files_to_write],
+        "fix_iterations": fix_history,
         "notes": pass2.get("notes_md"),
     }
     notes_md = pass2.get("notes_md") or ""
+    if fix_history:
+        notes_md = (notes_md + f"\n\nInline fix loop: {len(fix_history)} iteration(s); "
+                    f"final outcome={'success' if all_passed else 'still failing'}").strip()
     if not all_passed:
-        failed = [c["cmd"] for c in cmd_results if c["exit"] != 0]
+        failed = [c["cmd"] for c in cmd_results if c.get("exit", 0) != 0]
         notes_md = (notes_md + "\n\nVerification commands failed: " + ", ".join(failed)).strip()
 
     await hub.task_result(task_id, {
@@ -415,3 +436,98 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         "result": result,
         "notes_md": notes_md or None,
     })
+
+
+# ---------- Inline fix loop helpers -----------------------------------------
+
+_MAX_FIX_ITERATIONS = 3
+
+
+async def _run_verification(hub, task_id, commands, workspace_path) -> list[dict]:
+    """Run all commands, emit events, return list of result dicts."""
+    out: list[dict] = []
+    for cmd in commands:
+        if not isinstance(cmd, str):
+            continue
+        await hub.task_event(task_id, "subprocess.started", {"cmd": cmd})
+        res = await run_subproc(cmd, cwd=workspace_path, timeout_sec=120)
+        out.append({
+            "cmd": cmd, "exit": res.exit_code,
+            "stdout": res.stdout[-2000:], "stderr": res.stderr[-2000:],
+            "wall_sec": round(res.wall_sec, 2), "timed_out": res.timed_out,
+        })
+        await hub.task_event(task_id, "subprocess.completed", {
+            "cmd": cmd, "exit": res.exit_code, "wall_sec": round(res.wall_sec, 2),
+        })
+    return out
+
+
+def _collect_modified_paths(files: list, written_paths: list[str],
+                            files_to_write: list[dict]) -> list[str]:
+    """Union of files we've touched in this attempt, deduped, preserves order."""
+    paths: list[str] = []
+    seen: set[str] = set()
+    for p in written_paths or []:
+        if p and p not in seen:
+            paths.append(p); seen.add(p)
+    for f in files_to_write or []:
+        p = f.get("path") if isinstance(f, dict) else None
+        if p and p not in seen:
+            paths.append(p); seen.add(p)
+    return paths
+
+
+async def _try_inline_fix(*, hub, ollama, task: dict, project: dict,
+                          workspace, scope_paths: list[str],
+                          cmd_results: list[dict], iter_num: int) -> dict:
+    """Run one fix-LLM cycle.
+
+    Returns dict with keys: applied_files (list[str]), diagnosis_md (str),
+    gave_up (bool), gave_up_reason (str).
+    Side effect: writes the corrected files into the workspace.
+    """
+    # Render the fixer prompt
+    contents, _missing = read_files(workspace, scope_paths, max_chars=12_000)
+    files_block = "\n\n".join(f"--- {p} (CURRENT) ---\n{c}" for p, c in contents.items()) \
+                   or "(no files in scope — unexpected)"
+
+    failing = [c for c in cmd_results if c.get("exit", 0) != 0 or c.get("timed_out")]
+    cmd_outputs = "\n\n".join(
+        f"$ {c['cmd']}\n[exit={c['exit']}{', TIMEOUT' if c.get('timed_out') else ''}]"
+        + (f"\n--- stderr ---\n{(c.get('stderr') or '')[-1500:]}" if c.get('stderr') else "")
+        + (f"\n--- stdout ---\n{(c.get('stdout') or '')[-1500:]}" if c.get('stdout') else "")
+        for c in failing[:3]
+    ) or "(no failing commands?)"
+
+    prompt = _FIX_TPL.format(
+        project_name=project.get("name", "(unnamed)"),
+        project_context_indented=_indent(project.get("context_md") or "(no context)"),
+        task_title=task.get("title", "(no title)"),
+        task_description=task.get("description_md") or "(no description)",
+        acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
+        iter_num=iter_num,
+        max_iter=_MAX_FIX_ITERATIONS,
+        files_block=files_block,
+        cmd_outputs=cmd_outputs,
+    )
+
+    parsed, raw = await _ollama_generate(ollama, prompt, num_predict=2048)
+    await hub.task_event(task['id'], "llm.call.completed",
+                         {"mode": f"implementer_fix_iter_{iter_num}", **_gen_stats(raw)})
+
+    if not isinstance(parsed, dict):
+        return {"applied_files": [], "diagnosis_md": "",
+                "gave_up": True, "gave_up_reason": "fixer output unparseable"}
+
+    reason = parsed.get("give_up_reason") or ""
+    files = parsed.get("files") or []
+    if reason or not files:
+        return {"applied_files": [], "diagnosis_md": parsed.get("diagnosis_md") or "",
+                "gave_up": True, "gave_up_reason": reason or "fixer returned no files"}
+
+    ok, err, written = await write_files(workspace, files)
+    if not ok:
+        return {"applied_files": [], "diagnosis_md": parsed.get("diagnosis_md") or "",
+                "gave_up": True, "gave_up_reason": f"could not write fix files: {err}"}
+    return {"applied_files": written, "diagnosis_md": parsed.get("diagnosis_md") or "",
+            "gave_up": False, "notes_md": parsed.get("notes_md") or ""}

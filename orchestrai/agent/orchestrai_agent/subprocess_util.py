@@ -1,13 +1,25 @@
-"""Subprocess helper: timeout, capture, single place to log all shell-outs."""
+"""Subprocess helper: timeout, capture, single place to log all shell-outs.
+
+Critical detail: spawns each subprocess in its own process group so we can
+SIGKILL the WHOLE group on timeout. Without this, a command like
+`uvicorn main:app --reload` (which forks a worker process) will leave its
+child alive after we kill the parent; the child keeps stdout/stderr pipes
+open, and `proc.communicate()` then blocks forever waiting for EOF. That
+specific bug previously wedged the agent's main loop for tens of minutes.
+"""
 
 import asyncio
 import logging
+import os
+import signal
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
 log = logging.getLogger("orchestrai-agent.subproc")
 
 _MAX_CAPTURE_BYTES = 64 * 1024  # cap stdout/stderr at 64KB each
+_POST_KILL_DRAIN_SEC = 3.0       # hard ceiling on the post-kill communicate()
 
 
 @dataclass
@@ -19,6 +31,37 @@ class ProcResult:
     stderr: str
     timed_out: bool
     wall_sec: float
+
+
+def _kill_process_group(proc) -> None:
+    """SIGKILL the entire process group of `proc`. Tolerates already-dead
+    processes and the (rare) Windows host where we can't get a pgid."""
+    if sys.platform == "win32":
+        # Best-effort: just kill the parent. Windows doesn't have POSIX pgids.
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return
+    try:
+        pgid = os.getpgid(proc.pid)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 
 async def run(
@@ -49,9 +92,13 @@ async def run(
         stdin=asyncio.subprocess.PIPE if input_data else asyncio.subprocess.DEVNULL,
         cwd=cwd,
         env=env,
+        # Put the child in its own process group so we can kill grandchildren too.
+        start_new_session=(sys.platform != "win32"),
     )
 
     timed_out = False
+    stdout = b""
+    stderr = b""
     try:
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(input=input_data),
@@ -59,9 +106,17 @@ async def run(
         )
     except asyncio.TimeoutError:
         timed_out = True
-        proc.kill()
+        _kill_process_group(proc)
+        # Bound the post-kill drain so we don't hang even if a grandchild
+        # somehow survived (e.g. detached double-fork). If it does, we lose
+        # the captured bytes but the agent's main loop keeps moving.
         try:
-            stdout, stderr = await proc.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_POST_KILL_DRAIN_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning("subprocess pipes still held after kill; abandoning output")
+            stdout, stderr = b"", b""
         except Exception:
             stdout, stderr = b"", b""
 
