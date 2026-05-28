@@ -43,53 +43,27 @@ HOST-REACHABLE HTTP PORTS (for demo / human-feedback servers)
     - DO NOT bind to 127.0.0.1 — it isn't reachable from the host.
     - DO NOT use ports outside the advertised list — only those are mapped.
 
-GUIDELINES:
-- Each task should be COMPLETABLE in one focused session of work
-  (roughly: one diff, one set of tests, one verification).
-- Order tasks by dependency. Earlier tasks unblock later ones.
-- Every task must have explicit acceptance criteria. **STRONGLY PREFER structured criteria** that the orchestrator can verify deterministically without an LLM:
-    - `{{"kind": "test", "cmd": "<shell command>", "expect_exit": 0}}` — runs the command in the workspace, passes if exit code matches
-    - `{{"kind": "file_exists", "path": "<relative/path>"}}` — passes if file exists
-
-VERIFICATION COMMANDS — HARD RULES (failing these means the task can never pass):
-  1. The command MUST terminate on its own with an exit code. NEVER use:
-       - `--reload`, `--watch`, `serve`, `runserver`, `npm start`, `npm run dev`
-       - Anything that listens on a port and runs indefinitely
-       - Anything that waits for user input
-  2. The command MUST run with tools available in the agent image (see list above).
-     If a tool isn't available, either add an install step to the task description,
-     OR use a different verification approach.
-  3. Prefer `python -c "import mymodule; assert ..."` style assertions over CLI binaries.
-     Example for a FastAPI app:
-       GOOD: `python -c "from main import app; from fastapi.testclient import TestClient; assert TestClient(app).get('/').status_code == 200"`
-       BAD:  `uvicorn main:app --reload`
-  4. For test runners, ALWAYS use the short-circuit / quiet flag so they exit when done:
-       GOOD: `pytest -q`,  `pytest tests/test_foo.py::test_bar -q`
-       BAD:  `pytest --watch`, `pytest-watch`
-
-WRITING TESTS — AVOID the "guessed expected value" trap:
-  When a task involves writing tests for newly-written code with specific
-  numeric outputs (e.g. `assert mandelbrot(0.25, 100) == 5`), the implementer
-  often writes tests whose `expected` values don't match the actual function
-  output. The function may be correct and the test wrong, but `pytest` can't
-  tell the difference and just fails. Prevent this by:
-    - PREFERRING property-based assertions over hardcoded numeric outputs:
-        GOOD: `assert mandelbrot(0, 100) == 100`  (origin never escapes — known)
-        GOOD: `assert mandelbrot(2.5, 100) < 5`   (far-outside point escapes fast)
-        GOOD: `assert len(result) > 0`, `assert isinstance(x, int)`, etc.
-        AVOID: `assert mandelbrot(0.3, 100) == 27` (where 27 is guessed math)
-    - When the spec DOES pin a specific value (e.g. "add(2,3) == 5"), use it.
-    - For non-trivial math/algorithms where you can't pin specific outputs,
-      include guidance in the task's description to use property-based tests.
-
-- Prefer 5-12 tasks. Fewer = too coarse; more = over-decomposed.
-- `type` MUST be EXACTLY ONE OF: "implement" or "review". No other values.
-  Use "implement" for code-writing tasks and "review" for verification-only tasks
-  (whose sole job is to run a check, not write code).
-- For "review" tasks: ALL acceptance criteria MUST be structured (kind=test / file_exists),
-  never plain strings — otherwise the review cannot be auto-completed.
-- If the goal is genuinely ambiguous, INCLUDE clarifying questions in `questions[]`
-  and OMIT the `plan_md` field. Do NOT proceed to write tasks if a question is fundamental.
+RULES:
+- 5-12 tasks, each completable in one focused session. Order by dependency.
+- `type`: "implement" (writes code) or "review" (runs checks only). For "review",
+  ALL acceptance_criteria MUST be structured kind=test/file_exists — never plain strings.
+- Each task: `kind_hint` is one of: "web" (hosts an HTTP server), "test"
+  (writes tests / property-based assertions matter), "algo" (pure compute /
+  data structures), "refactor" (changes existing code), "data" (I/O, parsing,
+  ETL), or "other". The agent uses this to inject only the guidance that
+  matters for this task — getting it wrong costs ~500 prompt chars.
+- Each task: explicit `acceptance_criteria`. STRONGLY PREFER structured:
+    `{{"kind": "test", "cmd": "<shell cmd>", "expect_exit": 0}}` or
+    `{{"kind": "file_exists", "path": "<relative/path>"}}`
+- Verification commands MUST terminate on their own. NEVER use `--reload`,
+  `--watch`, `serve`, `runserver`, `npm start`, `npm run dev`, or anything
+  that listens indefinitely. Use `pytest -q` not `pytest --watch`. For
+  servers, use `orchestrai-serve --port N -- <cmd>` (it backgrounds + waits).
+- Tests for code with non-obvious outputs: prefer PROPERTY assertions
+  (`assert origin == 100`, `isinstance(x, int)`) over guessed numerics
+  (`assert f(0.3) == 27`). Encode the test-writing preference in the task's
+  description_md so the implementer follows it.
+- If the goal is genuinely ambiguous, fill `questions[]` and OMIT `plan_md`.
 
 DO NOT write the implementation. You produce the plan, not the code.
 
@@ -118,12 +92,12 @@ OUTPUT — exactly ONE fenced ```json block matching this shape:
     {{
       "title": "<short imperative; e.g. 'Scaffold FastAPI app'>",
       "type": "implement",
+      "kind_hint": "web",
       "description_md": "<2-6 sentences of what + why>",
       "depends_on_titles": ["<title of an earlier task in this list>"],
       "acceptance_criteria": [
         {{"kind": "test", "cmd": "pytest test_hello.py -q", "expect_exit": 0}},
-        {{"kind": "file_exists", "path": "hello.py"}},
-        "<plain-string criterion only when no machine check is possible>"
+        {{"kind": "file_exists", "path": "hello.py"}}
       ],
       "priority": "normal"
     }}

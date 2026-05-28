@@ -23,16 +23,16 @@ TASK
 
 {tools_block}
 
-CURRENT WORKSPACE TREE (paths only — relative to the project workspace root)
+{test_block}
+
+WORKSPACE TREE
 {workspace_tree}
 
 Constraints:
-- Read ONLY what you need. Each file you list adds to the next pass's context budget.
-- Follow existing project conventions visible in the tree. If unclear, ask via questions[].
-- The acceptance criteria define done. Plan changes that will satisfy them.
-- If the workspace is empty, you may still list files_to_write_or_modify for net-new files.
-- Verification commands should test that the acceptance criteria are met
-  (e.g. running pytest, calling a script, checking a file exists).
+- Read ONLY what you need (each file you list costs pass-2 budget).
+- Follow existing project conventions; if unclear, ask via questions[].
+- Verification commands must EXIT — never `--reload`/`--watch`. For servers
+  use `orchestrai-serve --port N -- <cmd>`. For tests use `pytest -q`.
 
 OUTPUT — exactly ONE fenced ```json block:
 {{

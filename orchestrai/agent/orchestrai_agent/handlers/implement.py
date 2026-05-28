@@ -16,6 +16,7 @@ from typing import Any, Optional
 from orchestrai_agent.config import config
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
+from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
 from orchestrai_agent.workspace import (
@@ -127,26 +128,37 @@ def _retry_section(task: dict) -> str:
     )
 
 
-def _http_ports_block() -> str:
-    if not config.HTTP_PORTS:
-        return ("HOST-REACHABLE HTTP PORTS: (none available — do not bind any "
-                "server to a port expecting host visibility)")
-    ports_csv = ", ".join(str(p) for p in config.HTTP_PORTS)
+def _kind_hint(task: dict) -> str:
+    payload = task.get("payload") or {}
+    return (payload.get("kind_hint") or "other").lower()
+
+
+def _http_ports_block(task: dict) -> str:
+    """Web-task only. Returns "" for non-web tasks so the prompt stays tight."""
+    if _kind_hint(task) != "web" or not config.HTTP_PORTS:
+        return ""
+    ports = ",".join(str(p) for p in config.HTTP_PORTS)
     first = config.HTTP_PORTS[0]
     return (
-        f"HOST-REACHABLE HTTP PORTS: {ports_csv}\n"
-        f"  If this task hosts a server for human review, bind to "
-        f"{config.HTTP_BIND_HOST}:<port> (NOT 127.0.0.1) on one of those ports.\n"
-        f"  Use `orchestrai-serve --port <port> -- <command...>` to start the\n"
-        f"  server detached AND have the verification command exit 0 once the\n"
-        f"  port is reachable. Example:\n"
-        f"    orchestrai-serve --port {first} -- uvicorn main:app --host 0.0.0.0 --port {first}\n"
-        f"  Users reach the app at http://localhost:<port> on the Docker host."
+        f"HOST PORTS: {ports} (bind 0.0.0.0:<port>, NOT 127.0.0.1). "
+        f"Use `orchestrai-serve --port {first} -- <cmd>` to background a "
+        f"server + exit 0 once reachable. Users hit http://localhost:<port>."
     )
 
 
-# Packages that ship in the base agent image. Keep this in sync with
-# Dockerfile.agent — anything here can be imported with no install step.
+_TEST_BLOCK = (
+    "WRITING TESTS: include `from <module> import <name>` (NameError otherwise). "
+    "Prefer property assertions (`assert f(0) == 100`, `isinstance(x, int)`) "
+    "over guessed numerics (`assert f(0.3) == 27`)."
+)
+
+
+def _test_block(task: dict) -> str:
+    """Only ship test-writing guidance to tasks that write tests."""
+    return _TEST_BLOCK if _kind_hint(task) == "test" else ""
+
+
+# Packages that ship in the base agent image. Keep in sync with Dockerfile.agent.
 _PREINSTALLED_PY = [
     "httpx", "pydantic", "pytest", "pytest-asyncio", "ruff", "black", "mypy",
     "requests", "sqlalchemy", "alembic",
@@ -156,24 +168,16 @@ _PREINSTALLED_PY = [
 
 def _tools_block(project: dict) -> str:
     declared = ((project.get("tools") or {}).get("python_packages") or [])
-    lines = ["AVAILABLE PYTHON PACKAGES — import these directly, NO pip install step needed:"]
-    lines.append("  preinstalled: " + ", ".join(_PREINSTALLED_PY))
-    if declared:
-        lines.append("  project-declared (already installed at task-claim time): "
-                     + ", ".join(declared))
-    else:
-        lines.append("  project-declared: (none beyond preinstalled)")
-    lines.append("  IF you need a package NOT in either list, STOP and add a "
-                 "`questions[]` entry asking for it to be added to the project's "
-                 "tool registry. DO NOT pip-install inline; tasks must not "
-                 "modify the project's tool list directly.")
-    lines.append("  Strongly prefer the preinstalled web stack (FastAPI + uvicorn "
-                 "+ jinja2) over Flask/Django/Bottle.")
-    return "\n".join(lines)
+    extra = [p for p in declared if p not in _PREINSTALLED_PY]
+    avail = _PREINSTALLED_PY + extra
+    line = "PY PACKAGES AVAILABLE (already installed, import directly): " + ", ".join(avail) + "."
+    line += (" For any package NOT listed, STOP and ask via `questions[]` — "
+             "do NOT pip-install inline. Prefer FastAPI over Flask/Django.")
+    return line
 
 
 def _render_pass1(project: dict, task: dict, workspace_tree: str,
-                  prior_files: dict | None = None) -> str:
+                  prior_files: dict | None = None) -> tuple[str, dict]:
     # On retry, prior_files holds {path: contents} for the files the previous
     # attempt modified. We splice them into the retry section so the LLM sees
     # what's currently on disk instead of regenerating from scratch.
@@ -187,24 +191,47 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
             "EDIT them, do not rewrite from scratch and reintroduce the same bug):\n```\n"
             + "\n\n".join(snippets) + "\n```\n\n"
         )
-    return _PASS1_TPL.format(
+    project_description = project.get("description_md") or "(no description)"
+    project_context = _indent(project.get("context_md") or "(no context)")
+    task_description = task.get("description_md") or "(no description)"
+    criteria = _format_criteria(task.get("acceptance_criteria") or [])
+    notes = _indent(task.get("notes") or "(none)")
+    http_block = _http_ports_block(task)
+    tools_block = _tools_block(project)
+    test_block = _test_block(task)
+    prompt = _PASS1_TPL.format(
         project_name=project.get("name", "(unnamed)"),
-        project_description=project.get("description_md") or "(no description)",
-        project_context_indented=_indent(project.get("context_md") or "(no context)"),
+        project_description=project_description,
+        project_context_indented=project_context,
         task_title=task.get("title", "(no title)"),
-        task_description=task.get("description_md") or "(no description)",
+        task_description=task_description,
         repo_name="(no specific repo)",
         branch_name=task.get("branch_name") or "(no branch)",
-        acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
-        notes_indented=_indent(task.get("notes") or "(none)"),
+        acceptance_criteria_indented=criteria,
+        notes_indented=notes,
         retry_section=rs,
-        http_ports_block=_http_ports_block(),
-        tools_block=_tools_block(project),
+        http_ports_block=http_block,
+        tools_block=tools_block,
+        test_block=test_block,
         workspace_tree=workspace_tree,
     )
+    sections = {
+        "project_description": len(project_description),
+        "project_context": len(project_context),
+        "task_description": len(task_description),
+        "acceptance_criteria": len(criteria),
+        "task_notes": len(notes),
+        "retry_section": len(rs),
+        "http_ports_block": len(http_block),
+        "tools_block": len(tools_block),
+        "test_block": len(test_block),
+        "workspace_tree": len(workspace_tree),
+        "static_template": len(_PASS1_TPL),
+    }
+    return prompt, sections
 
 
-def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) -> str:
+def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) -> tuple[str, dict]:
     files_summary = ", ".join(
         f"{f['path']} ({f.get('intent','')})"
         for f in (pass1.get("files_to_write_or_modify") or [])
@@ -216,22 +243,47 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
         files_block = "\n\n".join(rendered)
     else:
         files_block = "(no files to read — fresh workspace or no reads requested)"
-    return _PASS2_TPL.format(
+    project_description = project.get("description_md") or "(no description)"
+    project_context = _indent(project.get("context_md") or "(no context)")
+    task_description = task.get("description_md") or "(no description)"
+    criteria = _format_criteria(task.get("acceptance_criteria") or [])
+    retry = _retry_section(task)
+    http_block = _http_ports_block(task)
+    tools_block = _tools_block(project)
+    test_block = _test_block(task)
+    diff_plan = pass1.get("diff_plan_md") or "(no plan provided)"
+    prompt = _PASS2_TPL.format(
         project_name=project.get("name", "(unnamed)"),
-        project_description=project.get("description_md") or "(no description)",
-        project_context_indented=_indent(project.get("context_md") or "(no context)"),
+        project_description=project_description,
+        project_context_indented=project_context,
         task_title=task.get("title", "(no title)"),
-        task_description=task.get("description_md") or "(no description)",
+        task_description=task_description,
         repo_name="(no specific repo)",
         branch_name=task.get("branch_name") or "(no branch)",
-        acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
-        retry_section=_retry_section(task),
-        http_ports_block=_http_ports_block(),
-        tools_block=_tools_block(project),
+        acceptance_criteria_indented=criteria,
+        retry_section=retry,
+        http_ports_block=http_block,
+        tools_block=tools_block,
+        test_block=test_block,
         files_to_write_summary=files_summary,
-        diff_plan_md=pass1.get("diff_plan_md") or "(no plan provided)",
+        diff_plan_md=diff_plan,
         files_contents=files_block,
     )
+    sections = {
+        "project_description": len(project_description),
+        "project_context": len(project_context),
+        "task_description": len(task_description),
+        "acceptance_criteria": len(criteria),
+        "retry_section": len(retry),
+        "http_ports_block": len(http_block),
+        "tools_block": len(tools_block),
+        "test_block": len(test_block),
+        "files_to_write_summary": len(files_summary),
+        "diff_plan": len(diff_plan),
+        "files_contents": len(files_block),
+        "static_template": len(_PASS2_TPL),
+    }
+    return prompt, sections
 
 
 async def _ollama_generate(ollama: OllamaClient, prompt: str, num_predict: int) -> tuple[Optional[dict], dict]:
@@ -306,7 +358,8 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         unique_paths = [p for p in prev_paths if p and not (p in seen or seen.add(p))]
         prior_contents, _missing = read_files(workspace, unique_paths, max_chars=12_000)
         prior_files = prior_contents
-    pass1_prompt = _render_pass1(project, task, tree, prior_files=prior_files)
+    pass1_prompt, pass1_sections = _render_pass1(project, task, tree, prior_files=prior_files)
+    await emit_prompt_metrics(hub, task_id, "implementer_pass1", pass1_prompt, pass1_sections)
     await hub.task_event(task_id, "llm.call.started", {
         "mode": "implementer_pass1",
         "model": config.DEFAULT_MODEL,
@@ -352,7 +405,8 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         await hub.task_event(task_id, "implementer.files_missing", {"missing": missing})
 
     # 4. Pass 2: generate the diff
-    pass2_prompt = _render_pass2(project, task, pass1, contents)
+    pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents)
+    await emit_prompt_metrics(hub, task_id, "implementer_pass2", pass2_prompt, pass2_sections)
     await hub.task_event(task_id, "llm.call.started", {
         "mode": "implementer_pass2",
         "model": config.DEFAULT_MODEL,

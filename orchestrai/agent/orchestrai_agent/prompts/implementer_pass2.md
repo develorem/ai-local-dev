@@ -31,33 +31,11 @@ EXISTING FILE CONTENTS (only the files you requested)
 {files_contents}
 
 Rules:
-1. For files YOU ARE CREATING or REPLACING ENTIRELY: put them in `files[]` with the FULL contents. This is by far the most reliable path.
-2. For files YOU ARE MODIFYING in place: use a unified `diff` that `git apply` can apply. Include enough context lines so hunks apply cleanly.
-3. Paths are RELATIVE to the workspace root. NO leading slashes.
-4. Do NOT touch files outside files_to_write_or_modify from Pass 1.
-5. Match existing indentation (spaces vs tabs), LF line endings, and import style.
-6. Either `files` or `diff` MUST be non-empty.
+- New/full-rewrite files → `files[]` with full content. Modifications → unified `diff`.
+- Paths are relative, no leading slash. Match existing indent/EOL/import style.
+- Only touch files in pass1's files_to_write_or_modify. `files` or `diff` must be non-empty.
 
-WHEN WRITING TEST FILES — these mistakes break pytest every time:
-  a) **ALWAYS start with the imports.** A test file that calls `mandelbrot(...)`
-     without `from mandelbrot import mandelbrot` raises `NameError`. The same
-     applies to `import pytest` (needed only if you use `pytest.raises`,
-     `capsys`, or `tmp_path` — but never wrong to include).
-  b) **Do NOT guess specific numeric outputs of non-trivial functions.**
-     If the spec doesn't pin a value (like "add(2,3) == 5"), prefer
-     PROPERTY-BASED assertions:
-       GOOD: `assert mandelbrot(0) == 100`     # known: origin never escapes
-       GOOD: `assert mandelbrot(2.5) < 10`     # known: far point escapes fast
-       GOOD: `assert isinstance(result, int)`  # type check
-       BAD:  `assert mandelbrot(-1) == 3`      # guessed numeric value
-  c) **A complete test file looks like this:**
-       ```python
-       from mymodule import my_function
-
-       def test_foo():
-           assert my_function(0) == expected_value
-       ```
-     The `from X import Y` is REQUIRED. Don't omit it.
+{test_block}
 
 OUTPUT — exactly ONE fenced ```json block:
 {{

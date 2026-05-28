@@ -12,13 +12,15 @@ from typing import Any
 from orchestrai_agent.config import config
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
+from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _PROMPT_TEMPLATE = (PROMPTS_DIR / "planner.md").read_text(encoding="utf-8")
 
 
-def _render_prompt(project: dict, goal: dict) -> str:
+def _render_prompt(project: dict, goal: dict) -> tuple[str, dict]:
+    """Render the planner prompt and return (prompt, section_sizes)."""
     context = project.get("context_md") or "(no project context provided)"
     indented = "\n".join("    " + line for line in context.splitlines())
     if config.HTTP_PORTS:
@@ -46,20 +48,32 @@ def _render_prompt(project: dict, goal: dict) -> str:
     else:
         existing_tools_block = "  (none yet — this is the first plan for the project)"
 
-    return _PROMPT_TEMPLATE.format(
+    project_description = project.get("description_md") or "(no description)"
+    goal_description = goal.get("description_md", "(no description)")
+    prompt = _PROMPT_TEMPLATE.format(
         project_name=project.get("name", "(unnamed project)"),
         project_slug=project.get("slug", ""),
-        project_description=project.get("description_md") or "(no description)",
+        project_description=project_description,
         project_context_indented=indented,
         goal_title=goal.get("title", "(no title)"),
-        goal_description=goal.get("description_md", "(no description)"),
+        goal_description=goal_description,
         http_ports_block=http_ports_block,
         existing_tools_block=existing_tools_block,
     )
+    sections = {
+        "project_description": len(project_description),
+        "project_context": len(indented),
+        "goal_description": len(goal_description),
+        "http_ports_block": len(http_ports_block),
+        "existing_tools_block": len(existing_tools_block),
+        "static_template": len(_PROMPT_TEMPLATE),  # rough: includes placeholders
+    }
+    return prompt, sections
 
 
 _ALLOWED_PLANNER_TASK_TYPES = {"implement", "review"}
 _ALLOWED_PRIORITIES = {"low", "normal", "high", "critical"}
+_ALLOWED_KIND_HINTS = {"web", "test", "algo", "refactor", "data", "other"}
 
 
 def _validate_plan_output(parsed: Any) -> tuple[bool, str]:
@@ -91,6 +105,13 @@ def _validate_plan_output(parsed: Any) -> tuple[bool, str]:
             t.setdefault("priority", "normal")
             if t["priority"] not in _ALLOWED_PRIORITIES:
                 t["priority"] = "normal"
+            t.setdefault("kind_hint", "other")
+            if t["kind_hint"] not in _ALLOWED_KIND_HINTS:
+                t["kind_hint"] = "other"
+            # Stash the hint in payload so it survives instantiation.
+            payload = t.get("payload") or {}
+            payload["kind_hint"] = t["kind_hint"]
+            t["payload"] = payload
             t.setdefault("description_md", "")
             t.setdefault("acceptance_criteria", [])
             for dep in t.get("depends_on_titles") or []:
@@ -116,7 +137,8 @@ async def handle_plan(hub: HubClient, ollama: OllamaClient, envelope: dict) -> N
             await hub.task_event(task_id, "task.warning",
                                  {"message": f"could not fetch goal: {e}"})
 
-    prompt = _render_prompt(project, goal)
+    prompt, sections = _render_prompt(project, goal)
+    await emit_prompt_metrics(hub, task_id, "planner", prompt, sections)
 
     await hub.task_event(task_id, "llm.call.started", {
         "mode": "planner",
