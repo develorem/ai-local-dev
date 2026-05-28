@@ -21,6 +21,8 @@ TASK
 {retry_section}
 {http_ports_block}
 
+{tools_block}
+
 YOUR PASS 1 PLAN
   files_to_write_or_modify: {files_to_write_summary}
   diff_plan: {diff_plan_md}

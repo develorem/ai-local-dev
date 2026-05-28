@@ -30,6 +30,22 @@ def _render_prompt(project: dict, goal: dict) -> str:
         )
     else:
         http_ports_block = "  HTTP demo ports: (none — no host-reachable ports available)"
+
+    tools = project.get("tools") or {}
+    py_pkgs = tools.get("python_packages") or []
+    node_pkgs = tools.get("node_packages") or []
+    if py_pkgs or node_pkgs:
+        lines = []
+        if py_pkgs:
+            lines.append("  python_packages: " + ", ".join(py_pkgs))
+        if node_pkgs:
+            lines.append("  node_packages:   " + ", ".join(node_pkgs))
+        existing_tools_block = "\n".join(lines)
+        existing_tools_block += ("\n  (Inherit these. Do NOT redeclare; only add NEW tools "
+                                 "this goal genuinely needs.)")
+    else:
+        existing_tools_block = "  (none yet — this is the first plan for the project)"
+
     return _PROMPT_TEMPLATE.format(
         project_name=project.get("name", "(unnamed project)"),
         project_slug=project.get("slug", ""),
@@ -38,6 +54,7 @@ def _render_prompt(project: dict, goal: dict) -> str:
         goal_title=goal.get("title", "(no title)"),
         goal_description=goal.get("description_md", "(no description)"),
         http_ports_block=http_ports_block,
+        existing_tools_block=existing_tools_block,
     )
 
 
@@ -157,6 +174,24 @@ async def handle_plan(hub: HubClient, ollama: OllamaClient, envelope: dict) -> N
     plan_md = parsed.get("plan_md") or ""
     tasks_out = parsed.get("tasks") or []
     questions = parsed.get("questions") or []
+    tools_required = parsed.get("tools_required") or {}
+    # Normalise: only keep the keys we understand, only string entries, deduped.
+    def _clean_pkg_list(raw) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        seen: set[str] = set()
+        out: list[str] = []
+        for entry in raw:
+            if isinstance(entry, str):
+                s = entry.strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    out.append(s)
+        return out
+    tools_clean = {
+        "python_packages": _clean_pkg_list(tools_required.get("python_packages")),
+        "node_packages":   _clean_pkg_list(tools_required.get("node_packages")),
+    }
 
     await hub.task_result(task_id, {
         "outcome": "success",
@@ -164,5 +199,6 @@ async def handle_plan(hub: HubClient, ollama: OllamaClient, envelope: dict) -> N
             "plan_md": plan_md,
             "tasks": tasks_out,
             "questions": questions,
+            "tools_required": tools_clean,
         },
     })

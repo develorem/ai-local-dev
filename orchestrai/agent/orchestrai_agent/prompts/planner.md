@@ -11,6 +11,9 @@ GOAL
   Title:        {goal_title}
   Description:  {goal_description}
 
+EXISTING PROJECT TOOLS (already declared by earlier plans; tasks inherit them)
+{existing_tools_block}
+
 Decompose the goal above into a sequence of concrete implementable tasks.
 
 EXECUTION ENVIRONMENT (what the agent will have)
@@ -90,9 +93,27 @@ WRITING TESTS — AVOID the "guessed expected value" trap:
 
 DO NOT write the implementation. You produce the plan, not the code.
 
+TOOLS REQUIRED — declare them once, here, NOT per task
+  - `tools_required.python_packages` lists EVERY pip-installable package the
+    project needs at runtime or for tests. The Hub merges this into the
+    project's permanent tool registry; the agent will run `pip install` for
+    any package not already present BEFORE the first implement task runs.
+  - When a preinstalled package fits, use it. Do NOT add Flask, Django, or
+    Bottle when fastapi is already there. Do NOT add numpy unless the goal
+    genuinely needs numerical arrays — pure Python is usually faster to
+    install and just as correct.
+  - Pin versions ONLY when the goal requires a specific one. Otherwise
+    leave the package bare (e.g. "pillow", not "pillow==11.0.0").
+  - Tasks should NOT have `pip install` in their verification commands —
+    installs happen once, at project scope, before the agent touches code.
+
 OUTPUT — exactly ONE fenced ```json block matching this shape:
 {{
   "plan_md": "<markdown narrative: 4-12 paragraphs explaining approach, key decisions, ordering, and risks>",
+  "tools_required": {{
+    "python_packages": ["<package name>", "..."],
+    "node_packages":   []
+  }},
   "tasks": [
     {{
       "title": "<short imperative; e.g. 'Scaffold FastAPI app'>",

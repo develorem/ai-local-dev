@@ -134,6 +134,34 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
         return  # nothing to do; orphan approval
 
     if answer_value == "approve":
+        # UNION the plan's tools into the project's permanent registry. We
+        # never remove anything — once a project depends on a package, it
+        # keeps depending on it; the agent's pip-freeze diff handles the
+        # actual installs at task-claim time.
+        plan_tools = json_loads(plan_row["tools_required"], {})
+        if plan_tools:
+            proj = conn.execute(
+                "SELECT tools FROM projects WHERE id = ?", (project_id,),
+            ).fetchone()
+            current = json_loads(proj["tools"], {}) if proj else {}
+            merged = dict(current)
+            for kind in ("python_packages", "node_packages"):
+                existing = list(merged.get(kind) or [])
+                seen = {p.strip(): True for p in existing}
+                for pkg in (plan_tools.get(kind) or []):
+                    s = pkg.strip()
+                    if s and s not in seen:
+                        existing.append(s)
+                        seen[s] = True
+                merged[kind] = existing
+            conn.execute(
+                "UPDATE projects SET tools = ?, updated_at = ? WHERE id = ?",
+                (json_dumps(merged), now, project_id),
+            )
+            emit(conn, "project.tools_updated", "project", project_id,
+                 project_id=project_id, actor="system",
+                 detail={"added": plan_tools, "now": merged})
+
         # Instantiate the task_outline
         outline = json_loads(plan_row["task_outline"], [])
         title_to_id: dict[str, str] = {}

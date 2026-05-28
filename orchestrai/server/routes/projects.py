@@ -5,12 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import Project, ProjectCreate, ProjectUpdate
-from server.util import new_id, utcnow_iso
+from server.util import new_id, utcnow_iso, json_loads
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 def _row_to_project(row) -> dict:
+    try:
+        tools = json_loads(row["tools"], {}) if "tools" in row.keys() else {}
+    except Exception:
+        tools = {}
     return {
         "id": row["id"],
         "name": row["name"],
@@ -21,6 +25,7 @@ def _row_to_project(row) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "archived_at": row["archived_at"],
+        "tools": tools,
     }
 
 

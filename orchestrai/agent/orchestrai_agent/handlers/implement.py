@@ -145,6 +145,33 @@ def _http_ports_block() -> str:
     )
 
 
+# Packages that ship in the base agent image. Keep this in sync with
+# Dockerfile.agent — anything here can be imported with no install step.
+_PREINSTALLED_PY = [
+    "httpx", "pydantic", "pytest", "pytest-asyncio", "ruff", "black", "mypy",
+    "requests", "sqlalchemy", "alembic",
+    "fastapi", "uvicorn[standard]", "jinja2", "python-multipart",
+]
+
+
+def _tools_block(project: dict) -> str:
+    declared = ((project.get("tools") or {}).get("python_packages") or [])
+    lines = ["AVAILABLE PYTHON PACKAGES — import these directly, NO pip install step needed:"]
+    lines.append("  preinstalled: " + ", ".join(_PREINSTALLED_PY))
+    if declared:
+        lines.append("  project-declared (already installed at task-claim time): "
+                     + ", ".join(declared))
+    else:
+        lines.append("  project-declared: (none beyond preinstalled)")
+    lines.append("  IF you need a package NOT in either list, STOP and add a "
+                 "`questions[]` entry asking for it to be added to the project's "
+                 "tool registry. DO NOT pip-install inline; tasks must not "
+                 "modify the project's tool list directly.")
+    lines.append("  Strongly prefer the preinstalled web stack (FastAPI + uvicorn "
+                 "+ jinja2) over Flask/Django/Bottle.")
+    return "\n".join(lines)
+
+
 def _render_pass1(project: dict, task: dict, workspace_tree: str,
                   prior_files: dict | None = None) -> str:
     # On retry, prior_files holds {path: contents} for the files the previous
@@ -172,6 +199,7 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
         notes_indented=_indent(task.get("notes") or "(none)"),
         retry_section=rs,
         http_ports_block=_http_ports_block(),
+        tools_block=_tools_block(project),
         workspace_tree=workspace_tree,
     )
 
@@ -199,6 +227,7 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
         acceptance_criteria_indented=_format_criteria(task.get("acceptance_criteria") or []),
         retry_section=_retry_section(task),
         http_ports_block=_http_ports_block(),
+        tools_block=_tools_block(project),
         files_to_write_summary=files_summary,
         diff_plan_md=pass1.get("diff_plan_md") or "(no plan provided)",
         files_contents=files_block,

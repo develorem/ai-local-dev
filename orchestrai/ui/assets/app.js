@@ -433,6 +433,29 @@ route('/projects/:project_id', async ({ project_id }) => {
       el('pre', { style: 'white-space:pre-wrap;font-family:monospace;font-size:12px;margin:0;' }, p.context_md)));
   }
 
+  // ---- Required tools (populated by the planner; agent installs at claim) ---
+  const tools = p.tools || {};
+  const pyPkgs = tools.python_packages || [];
+  const nodePkgs = tools.node_packages || [];
+  if (pyPkgs.length || nodePkgs.length) {
+    const card = el('div', { class: 'card' }, el('h3', {}, 'Required tools'));
+    if (pyPkgs.length) {
+      card.appendChild(el('div', { class: 'muted', style: 'margin-top:4px;' }, 'Python:'));
+      const list = el('div', { class: 'tool-list' });
+      pyPkgs.forEach(pkg => list.appendChild(el('span', { class: 'pill' }, pkg)));
+      card.appendChild(list);
+    }
+    if (nodePkgs.length) {
+      card.appendChild(el('div', { class: 'muted', style: 'margin-top:8px;' }, 'Node:'));
+      const list = el('div', { class: 'tool-list' });
+      nodePkgs.forEach(pkg => list.appendChild(el('span', { class: 'pill' }, pkg)));
+      card.appendChild(list);
+    }
+    card.appendChild(el('div', { class: 'muted', style: 'margin-top:6px;font-size:11px;' },
+      'Agents pip/npm-install anything missing before each task runs.'));
+    content.appendChild(card);
+  }
+
   // ---- Goals (the most important entry point — keep at top) -----------
   content.appendChild(el('h2', {}, `Goals (${data.goals.length})`,
     el('button', { style: 'margin-left:12px;',

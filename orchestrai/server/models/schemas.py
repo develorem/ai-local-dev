@@ -37,6 +37,7 @@ class Project(_Base):
     created_at: str
     updated_at: str
     archived_at: Optional[str] = None
+    tools: dict = Field(default_factory=dict)
 
 
 # ---------- Repos -----------------------------------------------------------

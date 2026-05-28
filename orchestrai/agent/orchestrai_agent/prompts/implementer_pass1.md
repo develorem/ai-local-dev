@@ -21,6 +21,8 @@ TASK
 {retry_section}
 {http_ports_block}
 
+{tools_block}
+
 CURRENT WORKSPACE TREE (paths only — relative to the project workspace root)
 {workspace_tree}
 

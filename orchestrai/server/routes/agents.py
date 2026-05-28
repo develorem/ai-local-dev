@@ -169,10 +169,15 @@ def claim(agent_id: str,
 
     # Bundle project + repo context
     project = conn.execute(
-        "SELECT id, name, slug, description_md, context_md FROM projects WHERE id = ?",
+        "SELECT id, name, slug, description_md, context_md, tools FROM projects WHERE id = ?",
         (row["project_id"],),
     ).fetchone()
     project_dict = dict(project) if project else None
+    if project_dict and "tools" in project_dict:
+        try:
+            project_dict["tools"] = json_loads(project_dict["tools"], {})
+        except Exception:
+            project_dict["tools"] = {}
 
     repo = None
     if row["repo_id"]:

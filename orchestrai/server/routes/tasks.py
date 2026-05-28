@@ -396,14 +396,16 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
                 (row["goal_id"],),
             )
             plan_id = new_id()
+            tools_required = result.get("tools_required") or {}
             conn.execute(
                 """
                 INSERT INTO plans (id, goal_id, version, content_md, task_outline,
-                                   status, created_at)
-                VALUES (?, ?, ?, ?, ?, 'draft', ?)
+                                   tools_required, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)
                 """,
                 (plan_id, row["goal_id"], next_version,
-                 plan_md, json_dumps(task_outline), now),
+                 plan_md, json_dumps(task_outline),
+                 json_dumps(tools_required), now),
             )
             # Move the goal to 'planning' if not already
             if row["goal_id"]:

@@ -11,6 +11,7 @@ from orchestrai_agent.config import config
 from orchestrai_agent.handlers import handler_for
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
+from orchestrai_agent.tools import ensure_project_tools
 
 log = logging.getLogger("orchestrai-agent")
 
@@ -94,6 +95,40 @@ class AgentLoop:
                         })
                     except Exception as e:
                         log.error("failed to submit needs_human: %s", e)
+                    self._current_task_id = None
+                    continue
+
+                # Ensure project-declared tools are installed BEFORE the handler
+                # runs. Pure plan/review tasks don't write code so they don't
+                # strictly need this, but it's cheap (pip freeze is fast and we
+                # skip when nothing is missing) and means the agent's environment
+                # is consistent across task types.
+                try:
+                    tools_ok, tools_err = await ensure_project_tools(
+                        envelope.get("project"), self.hub, tid,
+                    )
+                except Exception as e:
+                    tools_ok = False
+                    tools_err = f"tools installer crashed: {type(e).__name__}: {e}"
+                if not tools_ok:
+                    log.warning("tool install failed for task %s: %s", tid, tools_err)
+                    try:
+                        await self.hub.task_result(tid, {
+                            "outcome": "needs_human",
+                            "result": {"error": tools_err},
+                            "notes_md": "Pre-task tool install failed; the "
+                                        "container can't satisfy the project's "
+                                        "declared python_packages. Either add a "
+                                        "missing system dep to Dockerfile.agent "
+                                        "or remove the package from the project "
+                                        "tool list.",
+                            "questions": [{
+                                "kind": "clarification",
+                                "prompt_md": f"Tool install failed:\n\n```\n{tools_err}\n```",
+                            }],
+                        })
+                    except Exception as e:
+                        log.error("failed to submit needs_human for tool failure: %s", e)
                     self._current_task_id = None
                     continue
 
