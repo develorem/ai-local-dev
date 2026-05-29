@@ -131,10 +131,16 @@ def claim(agent_id: str,
           SELECT t.id FROM tasks t
           WHERE t.status = 'ready'
             AND t.assigned_agent_id IS NULL
-            -- Only auto-run projects are claimed by the worker. 'manual' projects
-            -- are driven by whatever agent/human is connected (e.g. Claude Code);
-            -- the worker tracks them without executing.
-            AND (SELECT p.execution_mode FROM projects p WHERE p.id = t.project_id) = 'auto'
+            -- Claim only tasks whose project grants this agent access — by its
+            -- id, or by its kind (e.g. all 'worker' instances). No grant => the
+            -- worker leaves the project alone (the default for a new project).
+            AND EXISTS (
+              SELECT 1 FROM project_agents pa
+              WHERE pa.project_id = t.project_id
+                AND ((pa.grantee_type = 'agent' AND pa.grantee = ?)
+                  OR (pa.grantee_type = 'kind'  AND pa.grantee =
+                       (SELECT a.kind FROM agents a WHERE a.id = ?)))
+            )
             AND NOT EXISTS (
               SELECT 1 FROM json_each(t.depends_on) AS dep
               JOIN tasks dt ON dt.id = dep.value
@@ -158,7 +164,7 @@ def claim(agent_id: str,
         )
         RETURNING *
         """,
-        (agent_id, now),
+        (agent_id, now, agent_id, agent_id),
     ).fetchone()
 
     if not row:
