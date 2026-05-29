@@ -16,7 +16,10 @@ from typing import Any
 import httpx
 
 from orchestrai_agent.config import config
-from orchestrai_agent.handlers.plan import _ALLOWED_PLANNER_TASK_TYPES, _ALLOWED_PRIORITIES, _validate_plan_output
+from orchestrai_agent.handlers.plan import (
+    _ALLOWED_PLANNER_TASK_TYPES, _ALLOWED_PRIORITIES, _validate_plan_output,
+    sanitize_acceptance_criteria,
+)
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
 from orchestrai_agent.response_parser import extract_json
@@ -295,7 +298,7 @@ async def _handle_task_repair(hub: HubClient, ollama: OllamaClient,
     # verdict == "rewrite": apply the new fields to the failed task and reset it
     new_title = (parsed.get("new_title") or failed.get("title", "")).strip()
     new_desc = parsed.get("new_description_md") or failed.get("description_md", "")
-    new_criteria = parsed.get("new_acceptance_criteria") or []
+    new_criteria = sanitize_acceptance_criteria(parsed.get("new_acceptance_criteria") or [])
 
     # No-op guard. A "rewrite" that re-emits a criterion which already FAILED
     # deterministically will fail identically — re-queuing only burns the failed

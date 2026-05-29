@@ -5,6 +5,8 @@ planner prompt, parses structured JSON, and submits the result. The Hub
 turns the result into a Plan row + plan_approval Question.
 """
 
+import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -15,8 +17,55 @@ from orchestrai_agent.ollama_client import OllamaClient
 from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 
+log = logging.getLogger("orchestrai-agent.plan")
+
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _PROMPT_TEMPLATE = (PROMPTS_DIR / "planner.md").read_text(encoding="utf-8")
+
+
+# pytest-cov is NOT in the agent image, so any --cov* flag makes pytest exit 4
+# ("unrecognized arguments: --cov"). Planners reach for coverage flags
+# unprompted; strip them deterministically rather than let the criterion fail
+# forever. Order matters: longer / value-less variants precede bare --cov so it
+# can't match the prefix of --cov-report etc. The leading \s* swallows the
+# preceding space and the lookahead anchors each flag at a token boundary.
+_COV_FLAG_RE = re.compile(
+    r"\s*(?:"
+    r"--cov-report(?:[= ]\S+)?"
+    r"|--cov-config(?:[= ]\S+)?"
+    r"|--cov-fail-under(?:[= ]\S+)?"
+    r"|--cov-context(?:[= ]\S+)?"
+    r"|--cov-branch"
+    r"|--cov-append"
+    r"|--no-cov-on-fail"
+    r"|--no-cov"
+    r"|--cov(?:=\S+)?"
+    r")(?=\s|$)"
+)
+
+
+def _strip_coverage_flags(cmd: str) -> str:
+    cleaned = _COV_FLAG_RE.sub("", cmd)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def sanitize_acceptance_criteria(criteria: list) -> list:
+    """Deterministically fix acceptance criteria the agent image can't satisfy.
+
+    Today this strips pytest coverage flags (pytest-cov isn't installed, so they
+    error). Returns a new list and logs each rewrite so planner/repair drift is
+    visible. Used by both the planner output validator and task-repair.
+    """
+    out: list = []
+    for c in criteria or []:
+        if (isinstance(c, dict) and c.get("kind") == "test"
+                and isinstance(c.get("cmd"), str)):
+            fixed = _strip_coverage_flags(c["cmd"])
+            if fixed != c["cmd"]:
+                log.info("sanitized acceptance criterion: %r -> %r", c["cmd"], fixed)
+                c = {**c, "cmd": fixed}
+        out.append(c)
+    return out
 
 
 def _render_prompt(project: dict, goal: dict) -> tuple[str, dict]:
@@ -114,6 +163,8 @@ def _validate_plan_output(parsed: Any) -> tuple[bool, str]:
             t["payload"] = payload
             t.setdefault("description_md", "")
             t.setdefault("acceptance_criteria", [])
+            t["acceptance_criteria"] = sanitize_acceptance_criteria(
+                t["acceptance_criteria"])
             for dep in t.get("depends_on_titles") or []:
                 if dep not in titles:
                     return False, f"task[{i}] depends_on_titles references "\

@@ -26,6 +26,8 @@ The agent runs each task in a Linux container. Available tools, no extra install
   - gh (GitHub CLI)
 NOT available by default — DO NOT assume they exist unless the task installs them first:
   - any Python package not listed above (numpy, pillow, pandas, etc. need an install step)
+  - pytest-cov / coverage — NOT installed. NEVER use --cov, --cov-report, or
+    --cov-fail-under; pytest exits 4 ("unrecognized arguments"). Use `pytest -q`.
   - docker (the agent has no Docker socket)
   - any database server (postgres/mysql/redis — must use sqlite or in-memory alternatives)
 
@@ -59,6 +61,8 @@ RULES:
     `{{"kind": "file_exists", "path": "<relative/path>"}}`, or for a live
     endpoint `{{"kind": "http", "start": "<server cmd>", "port": 6800,
     "path": "/", "expect_status": 200, "expect_contains": "<text>"}}`
+  Criteria commands may use ONLY the tools listed as available above — no
+  coverage flags, no unlisted packages, and only the mapped HTTP ports.
 - Verification commands MUST terminate on their own. NEVER use `--reload`,
   `--watch`, `serve`, `runserver`, `npm start`, `npm run dev`, or anything
   that listens indefinitely. Use `pytest -q` not `pytest --watch`. For
