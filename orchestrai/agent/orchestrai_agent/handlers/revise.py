@@ -33,6 +33,17 @@ def _indent(text: str, prefix: str = "    ") -> str:
     return "\n".join(prefix + line for line in text.splitlines()) or (prefix + "(empty)")
 
 
+def _norm_criterion(c: Any) -> str:
+    """Canonical form of an acceptance criterion for equality comparison.
+
+    Dict criteria normalise to sorted-key JSON so reordered keys still compare
+    equal; string criteria normalise to their stripped text.
+    """
+    if isinstance(c, dict):
+        return json.dumps(c, sort_keys=True)
+    return str(c).strip()
+
+
 async def handle_revise(hub: HubClient, ollama: OllamaClient, envelope: dict) -> None:
     task = envelope["task"]
     project = envelope.get("project") or {}
@@ -285,6 +296,64 @@ async def _handle_task_repair(hub: HubClient, ollama: OllamaClient,
     new_title = (parsed.get("new_title") or failed.get("title", "")).strip()
     new_desc = parsed.get("new_description_md") or failed.get("description_md", "")
     new_criteria = parsed.get("new_acceptance_criteria") or []
+
+    # No-op guard. A "rewrite" that re-emits a criterion which already FAILED
+    # deterministically will fail identically — re-queuing only burns the failed
+    # task's attempts and produces the repair→fail→repair loop we want to avoid.
+    # The reviewer records each failed deterministic check as a structured_result
+    # with ok=False; we match the rewrite against exactly those. Criteria that
+    # were fine and only need a code change are deliberately NOT caught — their
+    # commands never appear as previously-failed, so an implement-task repair
+    # that keeps the criteria and rewrites guidance still re-queues normally.
+    # Emptying the criteria is the opposite cheat: it lets the gate pass without
+    # verifying anything. Either way the honest move is to escalate, not loop.
+    prev_failed_norm: set[str] = set()
+    for sr in (last_result.get("structured_results") or []):
+        if not (isinstance(sr, dict) and sr.get("ok") is False):
+            continue
+        if sr.get("kind") == "file_exists":
+            crit = {"kind": "file_exists", "path": sr.get("path")}
+        else:
+            crit = {"kind": sr.get("kind", "test"), "cmd": sr.get("cmd"),
+                    "expect_exit": sr.get("expect_exit", 0)}
+        prev_failed_norm.add(_norm_criterion(crit))
+
+    new_norm = {_norm_criterion(c) for c in new_criteria}
+    unaddressed = prev_failed_norm & new_norm
+
+    noop_reason = None
+    if unaddressed:
+        noop_reason = ("the rewrite left previously-failing acceptance criteria "
+                       "unchanged, so a fresh attempt would fail identically")
+    elif criteria and not new_criteria:
+        noop_reason = ("the rewrite removed all acceptance criteria, which would "
+                       "let the task pass without verifying anything")
+
+    if noop_reason:
+        diagnosis = parsed.get("diagnosis_md") or "(no diagnosis)"
+        await hub.task_result(repair_task_id, {
+            "outcome": "success",
+            "result": {
+                "verdict": "escalate_to_human",
+                "diagnosis_md": diagnosis,
+                "failed_task_id": failed_task_id,
+                "noop_guard": noop_reason,
+            },
+            "questions": [{
+                "kind": "clarification",
+                "prompt_md": (
+                    f"Task `{failed.get('title','(no title)')}` could not be "
+                    f"auto-repaired: {noop_reason}.\n\n"
+                    f"**Agent's diagnosis:** {diagnosis}\n\n"
+                    f"**Acceptance criteria that failed:**\n{criteria_indented}\n\n"
+                    "**Question for you:** how should these criteria be reworked "
+                    "so a fresh attempt can actually pass?"
+                ),
+            }],
+            "notes_md": f"Task-repair blocked by no-op guard: {noop_reason}. "
+                        "Escalated to human instead of re-queuing.",
+        })
+        return
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
