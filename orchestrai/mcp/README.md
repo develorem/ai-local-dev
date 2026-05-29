@@ -18,11 +18,15 @@ opt-in that lets it claim and run a project's tasks.)
 
 | Tool | What it does |
 |------|--------------|
-| `use_project(name, slug?)` | Select/create the project to track tasks in, and make it active. Call first. Returns open tasks + a UI link. |
-| `create_task(title, description?, priority?, depends_on?)` | Add a task (starts as `todo`). |
-| `list_tasks(status?)` | List the project's tasks. Call this to see human changes from the UI. |
-| `update_task(task_id, status?, note?)` | Set status (`todo`/`in_progress`/`blocked`/`done`/`cancelled`) and/or append a note. |
+| `use_project(name, slug?)` | Create (if needed) the project to track tasks in; returns its `slug` (pass it to the calls below) + open tasks + a UI link. Call first. |
+| `create_task(title, project?, description?, priority?, depends_on?)` | Add a task (starts as `todo`). `project` is the slug from `use_project` (omit to use the configured default). |
+| `list_tasks(project?, status?)` | List a project's tasks. Call this to see human changes from the UI. |
+| `update_task(task_id, status?, note?)` | Set status (`todo`/`in_progress`/`blocked`/`done`/`cancelled`) and/or append a note. (`task_id` is globally unique — no project needed.) |
 | `get_task(task_id)` | Full detail incl. notes + UI link. |
+
+The tools are **stateless** — each carries its own `project`, so one server can
+serve many agents/projects at once (this is what makes hub-hosted HTTP work).
+Set `ORCHESTRAI_PROJECT_SLUG` to make `project` optional for a single-project setup.
 
 ## Setup (Claude Code)
 

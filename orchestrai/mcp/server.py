@@ -31,8 +31,10 @@ DEFAULT_NAME = os.environ.get("ORCHESTRAI_PROJECT_NAME")
 
 mcp = FastMCP("orchestrai")
 
-# Session-scoped active project (the server process persists across tool calls).
-_state: dict = {"project_id": None, "slug": None}
+# slug -> project id memo. This is global truth (a slug maps to one project),
+# so it is safe to share across clients — there is NO per-client mutable state,
+# which is what lets the same server be hosted over HTTP for many agents at once.
+_PROJECT_CACHE: dict[str, str] = {}
 
 # Friendly status vocabulary <-> the Hub's task status enum.
 _TO_ENUM = {
@@ -94,20 +96,25 @@ def _find_project_by_slug(slug: str) -> str | None:
     return None
 
 
-def _active_project_id() -> str:
-    if _state["project_id"]:
-        return _state["project_id"]
-    if DEFAULT_SLUG:
-        pid = _find_project_by_slug(DEFAULT_SLUG)
-        if not pid and DEFAULT_NAME:
-            pid = _api("POST", "/projects", {
-                "name": DEFAULT_NAME, "slug": DEFAULT_SLUG,
-                "execution_mode": "manual",
-                "description_md": "Tasks tracked for an external agent."})["id"]
-        if pid:
-            _state["project_id"], _state["slug"] = pid, DEFAULT_SLUG
-            return pid
-    raise RuntimeError("No active OrchestrAi project. Call use_project(name) first.")
+def _resolve_project(project: str | None) -> str:
+    """Map a project slug (or the env default) to its id. No per-client state —
+    every call carries its own project, so one server can serve many agents."""
+    slug = project or DEFAULT_SLUG
+    if not slug:
+        raise RuntimeError("No project given. Pass project=<slug>, or call "
+                           "use_project(name) first, or set ORCHESTRAI_PROJECT_SLUG.")
+    if slug in _PROJECT_CACHE:
+        return _PROJECT_CACHE[slug]
+    pid = _find_project_by_slug(slug)
+    if not pid and slug == DEFAULT_SLUG and DEFAULT_NAME:
+        pid = _api("POST", "/projects", {
+            "name": DEFAULT_NAME, "slug": slug, "execution_mode": "manual",
+            "description_md": "Tasks tracked for an external agent."})["id"]
+    if not pid:
+        raise RuntimeError(f"No OrchestrAi project '{slug}'. Call "
+                           f"use_project('<name>', slug='{slug}') to create it first.")
+    _PROJECT_CACHE[slug] = pid
+    return pid
 
 
 def _list(pid: str) -> list[dict]:
@@ -117,10 +124,10 @@ def _list(pid: str) -> list[dict]:
 
 @mcp.tool()
 def use_project(name: str, slug: str | None = None) -> dict:
-    """Select or create the OrchestrAi project to track tasks in, and make it
-    active for subsequent calls. Creates it in 'manual' execution mode so the
-    OrchestrAi worker tracks the tasks without running them — you own the work.
-    Call this FIRST. Returns the project and its currently-open tasks."""
+    """Create (if needed) the OrchestrAi project to track tasks in, and return its
+    `slug` — pass that slug to create_task / list_tasks. Created in 'manual'
+    execution mode so the OrchestrAi worker tracks the tasks without running them
+    (you own the work). Call this FIRST. Returns the project + its open tasks."""
     slug = slug or _slugify(name)
     pid = _find_project_by_slug(slug)
     if pid:
@@ -129,22 +136,23 @@ def use_project(name: str, slug: str | None = None) -> dict:
         pid = _api("POST", "/projects", {
             "name": name, "slug": slug, "execution_mode": "manual",
             "description_md": "Tasks tracked for an external agent."})["id"]
-    _state["project_id"], _state["slug"] = pid, slug
+    _PROJECT_CACHE[slug] = pid
     tasks = _list(pid)
     return {
-        "project_id": pid, "slug": slug, "name": name,
+        "project": slug, "project_id": pid, "name": name,
         "ui_url": f"{HUB_URL}/#/projects/{pid}",
         "open_tasks": [t for t in tasks if t["status"] not in ("done", "cancelled")],
     }
 
 
 @mcp.tool()
-def create_task(title: str, description: str = "", priority: str = "normal",
-                depends_on: list[str] | None = None) -> dict:
-    """Add a task to the active project (starts as 'todo'). `priority` is one of
-    low|normal|high|critical. `depends_on` is an optional list of task ids that
-    must finish first. Returns the created task including its id."""
-    pid = _active_project_id()
+def create_task(title: str, project: str | None = None, description: str = "",
+                priority: str = "normal", depends_on: list[str] | None = None) -> dict:
+    """Add a task to a project (`project` = the slug from use_project; omit to use
+    the configured default). Starts as 'todo'. `priority` is low|normal|high|
+    critical. `depends_on` is an optional list of task ids that must finish first.
+    Returns the created task including its id."""
+    pid = _resolve_project(project)
     t = _api("POST", "/tasks", {
         "project_id": pid, "type": "implement", "title": title,
         "description_md": description, "priority": priority,
@@ -153,12 +161,12 @@ def create_task(title: str, description: str = "", priority: str = "normal",
 
 
 @mcp.tool()
-def list_tasks(status: str | None = None) -> list[dict]:
-    """List the active project's tasks (sorted: in-progress first, then by
-    priority). Optional `status` filter: todo|in_progress|blocked|done|cancelled.
-    Call this to pick up changes made in the OrchestrAi UI — e.g. tasks a human
-    added or reprioritized for you."""
-    tasks = _list(_active_project_id())
+def list_tasks(project: str | None = None, status: str | None = None) -> list[dict]:
+    """List a project's tasks (`project` = slug; omit for the configured default),
+    sorted in-progress first then by priority. Optional `status` filter:
+    todo|in_progress|blocked|done|cancelled. Call this to pick up changes made in
+    the OrchestrAi UI — e.g. tasks a human added or reprioritized for you."""
+    tasks = _list(_resolve_project(project))
     if status:
         tasks = [t for t in tasks if t["status"] == status]
     return tasks
