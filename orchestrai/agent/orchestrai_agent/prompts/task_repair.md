@@ -22,9 +22,11 @@ is nothing listening, and 8000 is the wrong port besides.
       python -c "from fastapi.testclient import TestClient; import app; assert 'Mandelbrot Fractal' in TestClient(app.app).get('/').text"
     (substitute the real module/attribute and expected text). This needs no
     running server and is deterministic.
-  - ONLY if a live server is genuinely required, the criterion must start it
-    itself and use a mapped port (6800–6802, NEVER 8000):
-      orchestrai-serve --port 6800 --wait-sec 20 -- uvicorn app:app --host 0.0.0.0 --port 6800 && curl -s http://127.0.0.1:6800 | grep 'Mandelbrot Fractal'
+  - To verify a LIVE endpoint, use a `kind:"http"` criterion. The reviewer
+    starts the server, makes the request, checks it, and tears it down — never
+    curl a server in a `kind:"test"` cmd (nothing is listening). Use a mapped
+    port (6800–6802, NEVER 8000):
+      {{"kind": "http", "start": "uvicorn app:app --host 0.0.0.0 --port 6800", "port": 6800, "path": "/", "expect_status": 200, "expect_contains": "Mandelbrot Fractal"}}
 
 THE FAILED TASK
   Title:        {task_title}

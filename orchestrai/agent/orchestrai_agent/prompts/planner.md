@@ -33,28 +33,32 @@ HOST-REACHABLE HTTP PORTS (for demo / human-feedback servers)
 {http_ports_block}
   When a goal calls for a running demo a human can visit:
     - Pick ONE of the ports above; bind the server to 0.0.0.0:<port> in-container.
-    - Start the server detached so verification still terminates. The agent
-      image ships `orchestrai-serve`, which spawns the command in the
-      background, polls the port until it responds, and exits 0/1:
-        orchestrai-serve --port 6800 -- uvicorn main:app --host 0.0.0.0 --port 6800
-      Use it as the verification command for "server is reachable" criteria.
-    - Reference it in acceptance criteria with curl, e.g.:
-        {{"kind": "test", "cmd": "curl -fsS http://localhost:6800/health", "expect_exit": 0}}
-    - DO NOT bind to 127.0.0.1 — it isn't reachable from the host.
-    - DO NOT use ports outside the advertised list — only those are mapped.
+    - DO NOT bind to 127.0.0.1, and DO NOT use ports outside the advertised list.
+    - To verify a LIVE endpoint, use a `kind:"http"` acceptance criterion. The
+      reviewer starts the server for you, makes the request, checks the response,
+      and tears the server down — you only declare it. NEVER curl a server in a
+      `kind:"test"` cmd: review runs each command in isolation with nothing
+      listening, so the curl always fails with connection-refused.
+        {{"kind": "http", "start": "uvicorn main:app --host 0.0.0.0 --port 6800",
+          "port": 6800, "path": "/", "expect_status": 200,
+          "expect_contains": "<text the page must contain>"}}
+    - For server-SIDE logic, ALSO prefer fast unit tests (pytest /
+      fastapi.testclient) over HTTP checks — they need no running server.
 
 RULES:
 - 5-12 tasks, each completable in one focused session. Order by dependency.
 - `type`: "implement" (writes code) or "review" (runs checks only). For "review",
-  ALL acceptance_criteria MUST be structured kind=test/file_exists — never plain strings.
+  ALL acceptance_criteria MUST be structured kind=test/file_exists/http — never plain strings.
 - Each task: `kind_hint` is one of: "web" (hosts an HTTP server), "test"
   (writes tests / property-based assertions matter), "algo" (pure compute /
   data structures), "refactor" (changes existing code), "data" (I/O, parsing,
   ETL), or "other". The agent uses this to inject only the guidance that
   matters for this task — getting it wrong costs ~500 prompt chars.
 - Each task: explicit `acceptance_criteria`. STRONGLY PREFER structured:
-    `{{"kind": "test", "cmd": "<shell cmd>", "expect_exit": 0}}` or
-    `{{"kind": "file_exists", "path": "<relative/path>"}}`
+    `{{"kind": "test", "cmd": "<shell cmd>", "expect_exit": 0}}`,
+    `{{"kind": "file_exists", "path": "<relative/path>"}}`, or for a live
+    endpoint `{{"kind": "http", "start": "<server cmd>", "port": 6800,
+    "path": "/", "expect_status": 200, "expect_contains": "<text>"}}`
 - Verification commands MUST terminate on their own. NEVER use `--reload`,
   `--watch`, `serve`, `runserver`, `npm start`, `npm run dev`, or anything
   that listens indefinitely. Use `pytest -q` not `pytest --watch`. For

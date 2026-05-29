@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from orchestrai_agent.config import config
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
@@ -35,6 +37,80 @@ def _format_criteria(criteria: list) -> str:
     for c in criteria:
         out.append(f"  - {c}" if isinstance(c, str) else f"  - {c}")
     return "\n".join(out)
+
+
+def _serve_log_tail(port: int, n: int = 400) -> str:
+    """Tail of the detached server's log, to surface why startup failed."""
+    p = Path(f"/tmp/orchestrai-serve/{port}.log")
+    try:
+        return "serve log: " + p.read_text(encoding="utf-8", errors="replace")[-n:]
+    except OSError:
+        return "(no serve log)"
+
+
+async def _check_http(c: dict, workspace: Path) -> dict:
+    """Stand up a server, hit one endpoint, assert status/body, tear it down.
+
+    Criterion shape:
+      {"kind": "http", "start": "<server cmd>", "port": 6800,
+       "path": "/", "expect_status": 200, "expect_contains": "<substring>"}
+
+    `start` is backgrounded via orchestrai-serve, which exits 0 once the port is
+    reachable and keeps the child alive; we always stop it again afterwards so a
+    later criterion (or the next review) starts from a clean port. This is the
+    only place a review brings up a server — bare `curl` test criteria can't,
+    because each runs as an isolated subprocess with nothing listening.
+    """
+    start = (c.get("start") or "").strip()
+    port = c.get("port")
+    path = c.get("path") or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    expect_status = int(c.get("expect_status", 200))
+    expect_contains = c.get("expect_contains")
+    wait_sec = int(c.get("wait_sec", 20))
+    base = {"kind": "http", "port": port, "path": path}
+
+    if not start:
+        return {**base, "ok": False, "detail": "missing 'start' command"}
+    if not isinstance(port, int):
+        return {**base, "ok": False, "detail": "missing or non-integer 'port'"}
+    allowed = config.HTTP_PORTS or [6800, 6801, 6802]
+    if port not in allowed:
+        return {**base, "ok": False,
+                "detail": f"port {port} is not one of the agent's mapped ports {allowed}"}
+
+    # Clear any stale server left on this port (defensive across criteria/runs).
+    await run_subproc(f"orchestrai-serve --stop {port}", cwd=str(workspace), timeout_sec=10)
+    try:
+        serve = await run_subproc(
+            f"orchestrai-serve --port {port} --wait-sec {wait_sec} -- {start}",
+            cwd=str(workspace), timeout_sec=wait_sec + 15,
+        )
+        if serve.exit_code != 0 or serve.timed_out:
+            return {**base, "ok": False,
+                    "detail": (f"server never became reachable on :{port} "
+                               f"(orchestrai-serve exit {serve.exit_code}). "
+                               + _serve_log_tail(port))}
+        url = f"http://127.0.0.1:{port}{path}"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url)
+        except Exception as e:
+            return {**base, "ok": False, "detail": f"request to {url} failed: {e}"}
+
+        status_ok = resp.status_code == expect_status
+        contains_ok = (expect_contains in resp.text) if expect_contains else True
+        ok = status_ok and contains_ok
+        detail = f"GET {path} -> {resp.status_code} (want {expect_status})"
+        if expect_contains:
+            detail += (f"; body {'contains' if contains_ok else 'MISSING'} "
+                       f"{expect_contains!r}")
+        return {**base, "ok": ok, "status": resp.status_code,
+                "expect_status": expect_status, "detail": detail,
+                "body_tail": "" if ok else resp.text[-300:]}
+    finally:
+        await run_subproc(f"orchestrai-serve --stop {port}", cwd=str(workspace), timeout_sec=10)
 
 
 async def _check_structured(criteria: list, workspace: Path) -> tuple[list[dict], list[str]]:
@@ -70,6 +146,8 @@ async def _check_structured(criteria: list, workspace: Path) -> tuple[list[dict]
                 "exit": res.exit_code, "expect_exit": expect_exit,
                 "stdout_tail": res.stdout[-500:], "stderr_tail": res.stderr[-500:],
             })
+        elif kind == "http":
+            results.append(await _check_http(c, workspace))
         else:
             # Unknown structured kind — defer to LLM as if it were free-form
             free_form.append(str(c))
