@@ -286,6 +286,65 @@ route('/agents/:agent_id', async ({ agent_id }) => {
   }
   content.appendChild(el('div', { class: 'card' }, kvs));
 
+  // ---- External agents: connection config, project access, delete ----
+  if (a.kind === 'external') {
+    const origin = location.origin;
+
+    const cmdPre = el('pre', { style: _CODE_STYLE }, '(click "Show config")');
+    const copyBtn = el('button', { style: 'display:none;' }, 'Copy command');
+    const dlBtn = el('button', { style: 'display:none;margin-left:6px;' }, 'Download .mcp.json');
+    const showBtn = el('button', {
+      onClick: async () => {
+        let cfg;
+        try { cfg = await api(`/agents/${agent_id}/config`); }
+        catch (e) { toast('Could not load config', 'error'); return; }
+        const cmd = `claude mcp add --transport http --header "Authorization: Bearer ${cfg.token}" orchestrai ${origin}/mcp`;
+        cmdPre.textContent = cmd;
+        copyBtn.style.display = ''; dlBtn.style.display = '';
+        copyBtn.onclick = () => copyText(cmd, 'Command copied');
+        dlBtn.onclick = () => downloadText('.mcp.json', mcpJsonForAgent(origin, cfg.token));
+      } }, 'Show config');
+    content.appendChild(el('div', { class: 'card' },
+      el('h3', {}, 'Connection'),
+      el('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px;' },
+        'Re-download this agent\'s MCP config (carries its token).'),
+      el('div', {}, showBtn), cmdPre, el('div', {}, copyBtn, dlBtn)));
+
+    const accHost = el('div', {});
+    content.appendChild(el('div', { class: 'card' },
+      el('h3', {}, 'Project access'), accHost));
+    const renderAcc = async () => {
+      accHost.innerHTML = '';
+      let items = [];
+      try { items = (await api(`/agents/${agent_id}/projects`)).items || []; } catch (e) { /* */ }
+      if (!items.length) {
+        accHost.appendChild(el('div', { class: 'muted' },
+          "Not granted to any project. Grant it from a project's Access section."));
+        return;
+      }
+      for (const it of items) {
+        accHost.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin:3px 0;' },
+          el('a', { href: `#/projects/${it.id}` }, it.name),
+          it.via === 'kind' ? el('span', { class: 'muted', style: 'font-size:11px;' }, '(via kind grant)') : null,
+          it.via === 'agent' ? el('button', {
+            onClick: async () => {
+              await api(`/projects/${it.id}/agents`, {
+                method: 'DELETE', body: { grantee_type: 'agent', grantee: agent_id } });
+              toast('Access revoked', 'success'); renderAcc();
+            } }, 'Revoke') : null));
+      }
+    };
+    await renderAcc();
+
+    content.appendChild(el('div', { style: 'margin:14px 0;' },
+      el('button', {
+        onClick: async () => {
+          if (!confirm(`Delete agent "${a.name}"? Its token will stop working.`)) return;
+          await api(`/agents/${agent_id}`, { method: 'DELETE' });
+          toast('Agent deleted', 'success'); location.hash = '#/agents';
+        } }, 'Delete agent')));
+  }
+
   if (data.current_task) {
     const t = data.current_task;
     content.appendChild(el('h2', {}, 'Current task'));

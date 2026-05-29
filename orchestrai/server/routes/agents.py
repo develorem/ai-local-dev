@@ -305,3 +305,45 @@ def get_agent(agent_id: str, conn=Depends(db_dep)):
         "recent_tasks": recent,
         "recent_events": history,
     }
+
+
+@router.get("/{agent_id}/config")
+def agent_config(agent_id: str, conn=Depends(db_dep)):
+    """Return an agent's connection token so the UI can (re)build its mcp.json.
+    Local single-user tool — the token is shown to the operator on purpose."""
+    r = conn.execute("SELECT id, name, lease_token FROM agents WHERE id = ?",
+                     (agent_id,)).fetchone()
+    if not r:
+        raise HTTPException(404)
+    return {"agent_id": r["id"], "name": r["name"], "token": r["lease_token"]}
+
+
+@router.get("/{agent_id}/projects")
+def agent_projects(agent_id: str, conn=Depends(db_dep)):
+    """Projects this agent may act on — granted directly (by id) or via its kind."""
+    a = conn.execute("SELECT kind FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if not a:
+        raise HTTPException(404)
+    rows = conn.execute(
+        """SELECT p.id, p.name, p.slug, pa.grantee_type
+           FROM project_agents pa JOIN projects p ON p.id = pa.project_id
+           WHERE (pa.grantee_type = 'agent' AND pa.grantee = ?)
+              OR (pa.grantee_type = 'kind'  AND pa.grantee = ?)
+           ORDER BY p.name""", (agent_id, a["kind"])).fetchall()
+    return {"items": [{"id": r["id"], "name": r["name"], "slug": r["slug"],
+                       "via": r["grantee_type"]} for r in rows]}
+
+
+@router.delete("/{agent_id}")
+def delete_agent(agent_id: str, conn=Depends(db_dep)):
+    """Remove an agent and any access grants made to it specifically."""
+    if not conn.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
+        raise HTTPException(404)
+    conn.execute("DELETE FROM project_agents WHERE grantee_type = 'agent' AND grantee = ?",
+                 (agent_id,))
+    # Emit before deleting the agent: the event FKs agents(id) (ON DELETE SET
+    # NULL), so it must reference an existing row, then null out on the delete.
+    emit(conn, "agent.deleted", "agent", agent_id, agent_id=agent_id, actor="user", detail={})
+    conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+    conn.commit()
+    return {"ok": True}
