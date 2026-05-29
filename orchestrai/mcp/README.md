@@ -1,0 +1,61 @@
+# OrchestrAi MCP server
+
+Track an AI coding agent's work as OrchestrAi tasks, and manage it from the
+OrchestrAi UI — wherever the agent is running. The classic flow:
+
+> "Hey Claude, use OrchestrAi to track your tasks for this project."
+
+Claude calls `use_project`, then creates tasks and marks them in_progress / done
+as it works. You watch and steer in the OrchestrAi UI in real time; anything you
+add or reprioritize there, Claude picks up the next time it calls `list_tasks`.
+
+Projects are created in **external** execution mode, so the OrchestrAi worker
+*tracks* these tasks but never tries to run them — the calling agent owns the work.
+
+## Tools
+
+| Tool | What it does |
+|------|--------------|
+| `use_project(name, slug?)` | Select/create the project to track tasks in, and make it active. Call first. Returns open tasks + a UI link. |
+| `create_task(title, description?, priority?, depends_on?)` | Add a task (starts as `todo`). |
+| `list_tasks(status?)` | List the project's tasks. Call this to see human changes from the UI. |
+| `update_task(task_id, status?, note?)` | Set status (`todo`/`in_progress`/`blocked`/`done`/`cancelled`) and/or append a note. |
+| `get_task(task_id)` | Full detail incl. notes + UI link. |
+
+## Setup (Claude Code)
+
+The hub must be running (default `http://localhost:6724`). The server's only
+dependency is `mcp`; HTTP uses the stdlib.
+
+With [uv](https://docs.astral.sh/uv/) (no venv to manage — deps are ephemeral):
+
+```sh
+claude mcp add orchestrai \
+  -e ORCHESTRAI_HUB_URL=http://localhost:6724 \
+  -- uv run --with mcp python /abs/path/to/orchestrai/mcp/server.py
+```
+
+Or with a venv:
+
+```sh
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+claude mcp add orchestrai \
+  -e ORCHESTRAI_HUB_URL=http://localhost:6724 \
+  -- /abs/path/to/.venv/bin/python /abs/path/to/orchestrai/mcp/server.py
+```
+
+### Optional environment
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `ORCHESTRAI_HUB_URL` | `http://localhost:6724` | Hub base URL. |
+| `ORCHESTRAI_PROJECT_SLUG` / `_NAME` | — | Default project, so tools work without an explicit `use_project` call. |
+| `ORCHESTRAI_TOKEN` | — | Bearer token (reserved; the hub is unauthenticated today). |
+
+## Notes
+
+- The UI updates live (WebSocket), so task changes appear the instant the agent
+  makes them.
+- Control is pull-based for the agent: UI edits (new tasks, reprioritization)
+  are seen the next time the agent calls `list_tasks` — so prompt your agent to
+  check its task list between steps.
