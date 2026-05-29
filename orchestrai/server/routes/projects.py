@@ -22,6 +22,8 @@ def _row_to_project(row) -> dict:
         "description_md": row["description_md"],
         "context_md": row["context_md"],
         "status": row["status"],
+        "execution_mode": (row["execution_mode"] if "execution_mode" in row.keys()
+                           else "managed"),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "archived_at": row["archived_at"],
@@ -37,10 +39,11 @@ def create_project(body: ProjectCreate, conn=Depends(db_dep)):
         conn.execute(
             """
             INSERT INTO projects (id, name, slug, description_md, context_md,
-                                  status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                                  status, execution_mode, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
             """,
-            (pid, body.name, body.slug, body.description_md, body.context_md, now, now),
+            (pid, body.name, body.slug, body.description_md, body.context_md,
+             body.execution_mode, now, now),
         )
         emit(conn, "project.created", "project", pid,
              project_id=pid, actor="user",
@@ -155,7 +158,7 @@ def update_project(project_id: str, body: ProjectUpdate, conn=Depends(db_dep)):
         raise HTTPException(404)
 
     fields, params = [], []
-    for f in ("name", "description_md", "context_md"):
+    for f in ("name", "description_md", "context_md", "execution_mode"):
         v = getattr(body, f)
         if v is not None:
             fields.append(f"{f} = ?")

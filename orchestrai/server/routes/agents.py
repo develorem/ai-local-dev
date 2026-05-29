@@ -129,6 +129,9 @@ def claim(agent_id: str,
           SELECT t.id FROM tasks t
           WHERE t.status = 'ready'
             AND t.assigned_agent_id IS NULL
+            -- Never claim tasks in an externally-executed project: an outside
+            -- agent (e.g. Claude Code) owns the work; OrchestrAi only tracks it.
+            AND (SELECT p.execution_mode FROM projects p WHERE p.id = t.project_id) = 'managed'
             AND NOT EXISTS (
               SELECT 1 FROM json_each(t.depends_on) AS dep
               JOIN tasks dt ON dt.id = dep.value

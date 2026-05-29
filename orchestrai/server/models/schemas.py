@@ -14,17 +14,22 @@ class _Base(BaseModel):
 
 # ---------- Projects --------------------------------------------------------
 
+ExecutionMode = Literal["managed", "external"]
+
+
 class ProjectCreate(_Base):
     name: str
     slug: str
     description_md: str = ""
     context_md: str = ""
+    execution_mode: ExecutionMode = "managed"
 
 
 class ProjectUpdate(_Base):
     name: Optional[str] = None
     description_md: Optional[str] = None
     context_md: Optional[str] = None
+    execution_mode: Optional[ExecutionMode] = None
 
 
 class Project(_Base):
@@ -34,6 +39,7 @@ class Project(_Base):
     description_md: str
     context_md: str
     status: Literal["active", "archived"]
+    execution_mode: ExecutionMode = "managed"
     created_at: str
     updated_at: str
     archived_at: Optional[str] = None
@@ -132,6 +138,14 @@ class TaskUpdate(_Base):
     depends_on: Optional[list[str]] = None
     acceptance_criteria: Optional[list[Any]] = None
     max_attempts: Optional[int] = None
+
+
+class TaskStatusUpdate(_Base):
+    """Direct status transition for externally-executed tasks (e.g. an outside
+    agent marking its own work in_progress/done). Separate from the agent's
+    claim/result machinery."""
+    status: TaskStatus
+    note_md: Optional[str] = None
 
 
 class Task(_Base):

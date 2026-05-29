@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from server.db.connection import db_dep
 from server.events import emit, event_row_to_dict
-from server.models import Task, TaskCreate, TaskUpdate
+from server.models import Task, TaskCreate, TaskUpdate, TaskStatusUpdate
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -301,6 +301,49 @@ def append_note(task_id: str, body: dict, conn=Depends(db_dep)):
          task_id=task_id, actor="user", detail={"note": note})
     conn.commit()
     return {"ok": True}
+
+
+@router.post("/{task_id}/status")
+def set_task_status(task_id: str, body: TaskStatusUpdate, conn=Depends(db_dep)):
+    """Directly transition a task's status. For externally-executed tasks — an
+    outside agent (e.g. Claude Code via MCP) marking its own work, or the UI
+    managing tracked work — distinct from the worker's claim/result flow.
+    Maintains started_at/finished_at, optionally appends a note, cascades to
+    unblock dependents on 'done', and may complete the goal."""
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    new_status = body.status
+    now = utcnow_iso()
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status      = ?,
+            started_at  = CASE WHEN ? = 'in_progress' THEN COALESCE(started_at, ?)
+                               ELSE started_at END,
+            finished_at = CASE WHEN ? IN ('done','failed','cancelled') THEN ?
+                               ELSE NULL END
+        WHERE id = ?
+        """,
+        (new_status, new_status, now, new_status, now, task_id),
+    )
+    if body.note_md and body.note_md.strip():
+        stamped = f"[{now}] {body.note_md.strip()}"
+        conn.execute(
+            "UPDATE tasks SET notes = CASE WHEN notes='' THEN ? "
+            "                              ELSE notes || char(10) || ? END WHERE id = ?",
+            (stamped, stamped, task_id),
+        )
+    emit(conn, "task.status_changed", "task", task_id,
+         project_id=row["project_id"], goal_id=row["goal_id"], task_id=task_id,
+         actor="user", detail={"from": row["status"], "to": new_status})
+
+    if new_status == "done":
+        _cascade_dep_unblock(conn, task_id)
+    if new_status in ("done", "cancelled") and row["goal_id"]:
+        _maybe_complete_goal(conn, row["goal_id"])
+    conn.commit()
+    return {"ok": True, "status": new_status}
 
 
 @router.post("/{task_id}/events")
