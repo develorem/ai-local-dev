@@ -141,9 +141,7 @@ def use_project(name: str, slug: str | None = None) -> dict:
     (you own the work). Call this FIRST. Returns the project + its open tasks."""
     slug = slug or _slugify(name)
     pid = _find_project_by_slug(slug)
-    if pid:
-        _api("PATCH", f"/projects/{pid}", {"execution_mode": "manual"})
-    else:
+    if not pid:
         pid = _api("POST", "/projects", {
             "name": name, "slug": slug, "execution_mode": "manual",
             "description_md": "Tasks tracked for an external agent."})["id"]

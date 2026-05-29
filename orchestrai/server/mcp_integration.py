@@ -27,30 +27,72 @@ from server.util import utcnow_iso
 current_agent: contextvars.ContextVar = contextvars.ContextVar("current_agent", default=None)
 
 
+def _has_grant(conn, agent: dict, project_id: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM project_agents pa WHERE pa.project_id = ? "
+        "AND ((pa.grantee_type = 'agent' AND pa.grantee = ?) "
+        "  OR (pa.grantee_type = 'kind'  AND pa.grantee = ?))",
+        (project_id, agent["id"], agent["kind"])).fetchone() is not None
+
+
+def _require_access(conn, agent: dict | None, project_id: str) -> None:
+    """Writes via MCP require a registered agent granted access to the project.
+    (Reads stay open; the human-facing REST/UI paths don't go through here.)"""
+    if agent is None:
+        raise RuntimeError("This action needs a registered agent. Register one in "
+                           "the OrchestrAi UI (Connect) and connect with its token.")
+    if not _has_grant(conn, agent, project_id):
+        raise RuntimeError(f"Agent '{agent['name']}' is not granted access to this "
+                           "project. Grant it in the OrchestrAi UI (project -> Access).")
+
+
+def _task_project(conn, task_id: str) -> str:
+    r = conn.execute("SELECT project_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not r:
+        raise RuntimeError(f"No such task: {task_id}")
+    return r["project_id"]
+
+
 def _hub_dispatch(method: str, path: str, body: dict | None = None):
     """Route an orchestrai_mcp `_api(method, path, body)` call to the in-process
-    handler. Mirrors the small slice of the REST surface the tools use."""
+    handler. Mirrors the small slice of the REST surface the tools use, and
+    enforces per-project access for the calling agent (current_agent) on writes."""
     u = urlparse(path)
     p, q = u.path, parse_qs(u.query)
     parts = [seg for seg in p.split("/") if seg]  # e.g. ['tasks', '<id>', 'status']
+    agent = current_agent.get()
     with get_db() as conn:
+        # ---- reads: open ----
         if method == "GET" and p == "/projects":
             return P.list_projects(status=None, limit=500, conn=conn)
-        if method == "POST" and p == "/projects":
-            return P.create_project(ProjectCreate(**body), conn=conn)
-        if method == "PATCH" and len(parts) == 2 and parts[0] == "projects":
-            return P.update_project(parts[1], ProjectUpdate(**body), conn=conn)
-        if method == "POST" and p == "/tasks":
-            return T.create_task(TaskCreate(**body), conn=conn)
         if method == "GET" and p == "/tasks":
             return T.list_tasks(project_id=q.get("project_id", [None])[0],
                                 limit=500, conn=conn)
         if method == "GET" and len(parts) == 2 and parts[0] == "tasks":
             return T.get_task(parts[1], conn=conn)
+        # ---- create a project (use_project): registered agent only; auto-grant it ----
+        if method == "POST" and p == "/projects":
+            if agent is None:
+                raise RuntimeError("Connect with a registered agent's token to create "
+                                   "a project (register one in the OrchestrAi UI).")
+            proj = P.create_project(ProjectCreate(**body), conn=conn)
+            conn.execute("INSERT OR IGNORE INTO project_agents (project_id, grantee_type, "
+                         "grantee) VALUES (?, 'agent', ?)", (proj["id"], agent["id"]))
+            conn.commit()
+            return proj
+        # ---- writes: require a grant on the target project ----
+        if method == "POST" and p == "/tasks":
+            _require_access(conn, agent, (body or {}).get("project_id"))
+            return T.create_task(TaskCreate(**body), conn=conn)
         if method == "POST" and len(parts) == 3 and parts[0] == "tasks" and parts[2] == "status":
+            _require_access(conn, agent, _task_project(conn, parts[1]))
             return T.set_task_status(parts[1], TaskStatusUpdate(**body), conn=conn)
         if method == "POST" and len(parts) == 3 and parts[0] == "tasks" and parts[2] == "notes":
+            _require_access(conn, agent, _task_project(conn, parts[1]))
             return T.append_note(parts[1], body or {}, conn=conn)
+        if method == "PATCH" and len(parts) == 2 and parts[0] == "projects":
+            _require_access(conn, agent, parts[1])
+            return P.update_project(parts[1], ProjectUpdate(**body), conn=conn)
     raise RuntimeError(f"MCP backend: unmapped call {method} {p}")
 
 
