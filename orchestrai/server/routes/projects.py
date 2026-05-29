@@ -23,7 +23,7 @@ def _row_to_project(row) -> dict:
         "context_md": row["context_md"],
         "status": row["status"],
         "execution_mode": (row["execution_mode"] if "execution_mode" in row.keys()
-                           else "managed"),
+                           else "manual"),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "archived_at": row["archived_at"],

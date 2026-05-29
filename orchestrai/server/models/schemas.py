@@ -14,7 +14,7 @@ class _Base(BaseModel):
 
 # ---------- Projects --------------------------------------------------------
 
-ExecutionMode = Literal["managed", "external"]
+ExecutionMode = Literal["auto", "manual"]
 
 
 class ProjectCreate(_Base):
@@ -22,7 +22,7 @@ class ProjectCreate(_Base):
     slug: str
     description_md: str = ""
     context_md: str = ""
-    execution_mode: ExecutionMode = "managed"
+    execution_mode: ExecutionMode = "manual"
 
 
 class ProjectUpdate(_Base):
@@ -39,7 +39,7 @@ class Project(_Base):
     description_md: str
     context_md: str
     status: Literal["active", "archived"]
-    execution_mode: ExecutionMode = "managed"
+    execution_mode: ExecutionMode = "manual"
     created_at: str
     updated_at: str
     archived_at: Optional[str] = None

@@ -2,7 +2,7 @@
 
 Lets an outside agent (e.g. Claude Code) track its work as OrchestrAi tasks,
 so a human can watch and manage that work in the OrchestrAi UI. Projects are
-created in 'external' execution mode, so the OrchestrAi worker tracks the tasks
+created in 'manual' execution mode, so the OrchestrAi worker tracks the tasks
 without trying to run them — the calling agent owns the work.
 
 Talks to the Hub's REST API (no extra coupling). Only dependency is `mcp`;
@@ -102,7 +102,7 @@ def _active_project_id() -> str:
         if not pid and DEFAULT_NAME:
             pid = _api("POST", "/projects", {
                 "name": DEFAULT_NAME, "slug": DEFAULT_SLUG,
-                "execution_mode": "external",
+                "execution_mode": "manual",
                 "description_md": "Tasks tracked for an external agent."})["id"]
         if pid:
             _state["project_id"], _state["slug"] = pid, DEFAULT_SLUG
@@ -118,16 +118,16 @@ def _list(pid: str) -> list[dict]:
 @mcp.tool()
 def use_project(name: str, slug: str | None = None) -> dict:
     """Select or create the OrchestrAi project to track tasks in, and make it
-    active for subsequent calls. Creates it in 'external' execution mode so the
+    active for subsequent calls. Creates it in 'manual' execution mode so the
     OrchestrAi worker tracks the tasks without running them — you own the work.
     Call this FIRST. Returns the project and its currently-open tasks."""
     slug = slug or _slugify(name)
     pid = _find_project_by_slug(slug)
     if pid:
-        _api("PATCH", f"/projects/{pid}", {"execution_mode": "external"})
+        _api("PATCH", f"/projects/{pid}", {"execution_mode": "manual"})
     else:
         pid = _api("POST", "/projects", {
-            "name": name, "slug": slug, "execution_mode": "external",
+            "name": name, "slug": slug, "execution_mode": "manual",
             "description_md": "Tasks tracked for an external agent."})["id"]
     _state["project_id"], _state["slug"] = pid, slug
     tasks = _list(pid)

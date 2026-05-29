@@ -9,8 +9,10 @@ Claude calls `use_project`, then creates tasks and marks them in_progress / done
 as it works. You watch and steer in the OrchestrAi UI in real time; anything you
 add or reprioritize there, Claude picks up the next time it calls `list_tasks`.
 
-Projects are created in **external** execution mode, so the OrchestrAi worker
+Projects are created in **manual** execution mode, so the OrchestrAi worker
 *tracks* these tasks but never tries to run them — the calling agent owns the work.
+(The OrchestrAi worker itself is just another API client; `auto` mode is the
+opt-in that lets it claim and run a project's tasks.)
 
 ## Tools
 
