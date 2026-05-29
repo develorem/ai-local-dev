@@ -893,6 +893,94 @@ route('/tasks/:task_id', async ({ task_id }) => {
   content.appendChild(hist);
 });
 
+function copyText(text, label = 'Copied') {
+  navigator.clipboard.writeText(text).then(
+    () => toast(label, 'success'),
+    () => toast('Copy failed — select the text and copy manually', 'error'));
+}
+
+function mcpJsonFor(origin) {
+  return JSON.stringify(
+    { mcpServers: { orchestrai: { type: 'http', url: `${origin}/mcp` } } }, null, 2);
+}
+
+function claudeMdFor(name, slug) {
+  return [
+    '## Task tracking (OrchestrAi)',
+    '',
+    'Track your work for this project in OrchestrAi via the `orchestrai` MCP tools.',
+    '',
+    `- At the start of a session, call \`use_project\` (name: "${name}", slug: "${slug}").`,
+    '- Break the work into tasks with `create_task`.',
+    '- Before starting a task call `update_task(task_id, status="in_progress")`; when',
+    '  finished, `update_task(task_id, status="done")`. Use `note` to record anything useful.',
+    '- Between steps, call `list_tasks` to pick up tasks the human added or reprioritized',
+    '  in the OrchestrAi UI.',
+  ].join('\n');
+}
+
+const _CODE_STYLE = 'background:#0d1117;border:1px solid #30363d;padding:12px;border-radius:6px;' +
+  'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:12px;margin:6px 0;';
+
+route('/connect', async () => {
+  setActiveNav('connect');
+  setBreadcrumb([{ label: 'Connect an agent' }]);
+  const origin = location.origin;
+  const addCmd = `claude mcp add --transport http orchestrai ${origin}/mcp`;
+  const content = $('#content');
+  content.innerHTML = `
+    <h1>Connect an agent</h1>
+    <p class="muted">Let Claude (or any MCP client) track its tasks here. Tasks created
+    this way are tracked-only — the OrchestrAi worker won't run them — so you manage the
+    agent's work live in this UI.</p>
+
+    <h2>1. Add the MCP server</h2>
+    <p class="muted">Run this wherever your agent lives. Connects by URL — nothing to install.</p>
+    <pre id="add-cmd" style="${_CODE_STYLE}"></pre>
+    <button id="copy-cmd">Copy command</button>
+    <button id="dl-json">Download .mcp.json</button>
+
+    <h2>2. Pick the project to track into</h2>
+    <p class="muted">The slug below goes into the snippet. Your agent can also create the
+    project itself by calling <code>use_project</code>.</p>
+    <select id="connect-project"></select>
+
+    <h2>3. Tell your agent to use it</h2>
+    <p class="muted">Paste into the project's <code>CLAUDE.md</code> (or your agent's
+    system instructions) — this is what makes the agent actually track tasks.</p>
+    <pre id="claude-md" style="${_CODE_STYLE}"></pre>
+    <button id="copy-md">Copy snippet</button>
+  `;
+  $('#add-cmd').textContent = addCmd;
+
+  const sel = $('#connect-project');
+  let projects = [];
+  try { projects = (await api('/projects')).items || []; } catch (e) { /* ignore */ }
+  if (!projects.length) {
+    sel.appendChild(el('option', { value: '' }, '(no projects yet — your agent will create one)'));
+  }
+  for (const p of projects) {
+    const tag = p.execution_mode === 'auto' ? ' — autopilot' : '';
+    sel.appendChild(el('option', { value: p.slug }, `${p.name} (${p.slug})${tag}`));
+  }
+
+  const renderSnippet = () => {
+    const slug = sel.value || 'my-project';
+    const proj = projects.find(p => p.slug === slug);
+    $('#claude-md').textContent = claudeMdFor(proj ? proj.name : 'My Project', slug);
+  };
+  renderSnippet();
+  sel.onchange = renderSnippet;
+
+  $('#copy-cmd').onclick = () => copyText(addCmd, 'Command copied');
+  $('#copy-md').onclick = () => copyText($('#claude-md').textContent, 'Snippet copied');
+  $('#dl-json').onclick = () => {
+    const blob = new Blob([mcpJsonFor(origin)], { type: 'application/json' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: '.mcp.json' });
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+});
+
 route('/vault', async () => {
   setActiveNav('vault');
   setBreadcrumb([{ label: 'Vault' }]);
