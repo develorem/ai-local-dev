@@ -9,6 +9,7 @@ Apply the diff, run verification commands, submit the result.
 """
 
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -30,6 +31,28 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _PASS1_TPL = (PROMPTS_DIR / "implementer_pass1.md").read_text(encoding="utf-8")
 _PASS2_TPL = (PROMPTS_DIR / "implementer_pass2.md").read_text(encoding="utf-8")
 _FIX_TPL = (PROMPTS_DIR / "implementer_fix.md").read_text(encoding="utf-8")
+_DIFF_RECOVER_TPL = (PROMPTS_DIR / "implementer_diff_recover.md").read_text(encoding="utf-8")
+
+_DIFF_GIT_RE = re.compile(r"^diff --git a/\S+ b/(\S+)", re.M)
+_DIFF_PATH_RE = re.compile(r"^(?:\+\+\+|---) [ab]/(.+?)\s*$", re.M)
+
+
+def _diff_target_paths(diff: str, fallback: list[str]) -> list[str]:
+    """Best-effort: the file paths a (possibly corrupt) diff targets. Even diffs
+    that fail to apply usually have parseable +++/diff --git headers; fall back
+    to pass1's declared paths if none are found."""
+    found: list[str] = [m.group(1) for m in _DIFF_GIT_RE.finditer(diff)]
+    for m in _DIFF_PATH_RE.finditer(diff):
+        p = m.group(1).strip()
+        if p and p != "/dev/null":
+            found.append(p)
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in found + list(fallback):
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
 
 
 def _indent(text: str, prefix: str = "    ") -> str:
@@ -532,13 +555,29 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         ok, err = await apply_diff(workspace, diff)
         if not ok:
             await hub.task_event(task_id, "implementer.diff_apply_failed", {"error": err[:500]})
-            await hub.task_result(task_id, {
-                "outcome": "fix_needed",
-                "result": {"reason": "diff_apply_failed", "error": err, "diff": diff,
-                           "files_written": written_paths},
-                "notes_md": f"Diff did not apply cleanly:\n{err[:500]}",
-            })
-            return
+            # A corrupt / inapplicable diff would otherwise dead-end the whole
+            # attempt (qwen's diffs are unreliable). Recover by resending the
+            # affected files as full content, which always applies.
+            recover = await _recover_diff_as_files(
+                hub=hub, ollama=ollama, task=task, project=project,
+                workspace=workspace, diff=diff, apply_err=err,
+                fallback_paths=[f.get("path") for f in files_to_write
+                                if isinstance(f, dict) and f.get("path")],
+            )
+            if recover["ok"]:
+                written_paths = list(dict.fromkeys(written_paths + recover["applied_files"]))
+                await hub.task_event(task_id, "implementer.diff_recovered_as_files",
+                                     {"paths": recover["applied_files"]})
+            else:
+                await hub.task_result(task_id, {
+                    "outcome": "fix_needed",
+                    "result": {"reason": "diff_apply_failed", "error": err, "diff": diff,
+                               "files_written": written_paths,
+                               "recovery_reason": recover["reason"]},
+                    "notes_md": (f"Diff did not apply and full-file recovery failed:"
+                                 f"\n{err[:400]}\n({recover['reason']})"),
+                })
+                return
 
     # 6. Auto-commit
     commit_sha = await commit_all(workspace, f"orchestrai: {task.get('title','task')}")
@@ -645,6 +684,41 @@ def _collect_modified_paths(files: list, written_paths: list[str],
         if p and p not in seen:
             paths.append(p); seen.add(p)
     return paths
+
+
+async def _recover_diff_as_files(*, hub, ollama, task: dict, project: dict,
+                                 workspace, diff: str, apply_err: str,
+                                 fallback_paths: list[str]) -> dict:
+    """A corrupt / inapplicable diff would dead-end the whole attempt. Recover by
+    asking the model to resend the affected files as full content — whole-file
+    writes always apply, and qwen's diffs are unreliable. Returns
+    {ok, applied_files, reason}; writes the recovered files into the workspace.
+    """
+    targets = _diff_target_paths(diff, fallback_paths)
+    contents, _missing = read_files(workspace, targets, max_chars=12_000)
+    parts = []
+    for p in targets:
+        body = contents.get(p)
+        parts.append(f"--- {p} (CURRENT) ---\n{body}" if body is not None
+                     else f"--- {p} (does not exist yet) ---")
+    files_block = "\n\n".join(parts) or "(no target files identified)"
+
+    prompt = _DIFF_RECOVER_TPL.format(
+        task_title=task.get("title", "(no title)"),
+        task_description=task.get("description_md") or "(no description)",
+        failed_diff=diff[:3000],
+        apply_error=(apply_err or "")[:600],
+        files_block=files_block,
+    )
+    parsed, raw = await _ollama_generate(ollama, prompt, num_predict=4096)
+    await hub.task_event(task["id"], "llm.call.completed",
+                         {"mode": "implementer_diff_recover", **_gen_stats(raw)})
+    if not isinstance(parsed, dict) or not (parsed.get("files") or []):
+        return {"ok": False, "applied_files": [], "reason": "recovery produced no files"}
+    ok, err, written = await write_files(workspace, parsed["files"])
+    if not ok:
+        return {"ok": False, "applied_files": [], "reason": f"write failed: {err}"}
+    return {"ok": True, "applied_files": written, "reason": ""}
 
 
 async def _try_inline_fix(*, hub, ollama, task: dict, project: dict,
