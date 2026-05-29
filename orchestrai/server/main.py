@@ -4,11 +4,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.config import config
 from server.db import init_db, run_migrations
+from server.mcp_integration import mcp_asgi, mcp_server
 from server.reaper import start_reaper, stop_reaper
 from server.routes import api
 
@@ -30,10 +31,13 @@ async def lifespan(app: FastAPI):
           flush=True)
     reaper_task = start_reaper()
     print(f"[orchestrai] reaper started (interval={config.REAPER_INTERVAL_SEC}s)", flush=True)
-    try:
-        yield
-    finally:
-        await stop_reaper(reaper_task)
+    # Run the MCP streamable-HTTP session manager for the life of the app.
+    async with mcp_server.session_manager.run():
+        print("[orchestrai] MCP endpoint mounted at /mcp", flush=True)
+        try:
+            yield
+        finally:
+            await stop_reaper(reaper_task)
 
 
 app = FastAPI(
@@ -43,6 +47,16 @@ app = FastAPI(
 )
 
 app.include_router(api)
+
+# Hosted MCP endpoint (streamable HTTP), mounted before the UI catch-all so it
+# isn't shadowed. The mount matches /mcp/ and /mcp/...; a bare /mcp wouldn't, so
+# redirect it (307 preserves method+body; MCP clients follow redirects). Net: a
+# client configured with .../mcp just works.
+@app.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False)
+async def _mcp_no_trailing_slash():
+    return RedirectResponse("/mcp/", status_code=307)
+
+app.mount("/mcp", mcp_asgi)
 
 # Static UI — no-cache everywhere so a fresh deploy is visible without a hard refresh.
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"

@@ -30,8 +30,21 @@ Set `ORCHESTRAI_PROJECT_SLUG` to make `project` optional for a single-project se
 
 ## Setup (Claude Code)
 
-The hub must be running (default `http://localhost:6724`). The server's only
-dependency is `mcp`; HTTP uses the stdlib.
+### Recommended: connect to the hub-hosted endpoint (just a URL)
+
+The hub serves these tools over HTTP at `/mcp` — no local script, Python, or
+path needed. With the hub running (default `http://localhost:6724`):
+
+```sh
+claude mcp add --transport http orchestrai http://localhost:6724/mcp
+```
+
+That's it. Any MCP-capable client can connect with the same URL.
+
+### Alternative: run the stdio script locally
+
+For offline use or when the hub is remote. The script's only dependency is
+`mcp`; HTTP uses the stdlib.
 
 With [uv](https://docs.astral.sh/uv/) (no venv to manage — deps are ephemeral):
 
