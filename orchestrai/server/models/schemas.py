@@ -183,7 +183,8 @@ AgentStatus = Literal["connected", "idle", "busy", "lost", "released"]
 class AgentRegister(_Base):
     name: str
     host: Optional[str] = None
-    version: str
+    version: str = ""
+    kind: Literal["worker", "external"] = "worker"
     capabilities: list[str] = Field(default_factory=list)
     # Host ports mapped into the agent container, available for hosting
     # demo/feedback servers. Identity-mapped (container port == host port).
@@ -203,6 +204,7 @@ class Agent(_Base):
     name: str
     host: Optional[str] = None
     version: str
+    kind: Literal["worker", "external"] = "worker"
     capabilities: list[str]
     status: AgentStatus
     last_heartbeat_at: Optional[str] = None

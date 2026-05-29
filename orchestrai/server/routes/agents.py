@@ -41,6 +41,7 @@ def _row_to_agent(row) -> dict:
         "name": row["name"],
         "host": row["host"],
         "version": row["version"],
+        "kind": row["kind"] if "kind" in row.keys() else "worker",
         "capabilities": json_loads(row["capabilities"], []),
         "status": row["status"],
         "last_heartbeat_at": row["last_heartbeat_at"],
@@ -57,16 +58,17 @@ def register(body: AgentRegister, conn=Depends(db_dep)):
     now = utcnow_iso()
     conn.execute(
         """
-        INSERT INTO agents (id, name, host, version, capabilities,
+        INSERT INTO agents (id, name, host, version, kind, capabilities,
                             status, lease_token, last_heartbeat_at, registered_at)
-        VALUES (?, ?, ?, ?, ?, 'idle', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 'idle', ?, ?, ?)
         """,
-        (aid, body.name, body.host, body.version,
+        (aid, body.name, body.host, body.version, body.kind,
          json_dumps(body.capabilities), token, now, now),
     )
     emit(conn, "agent.registered", "agent", aid,
          agent_id=aid, actor="agent:" + aid,
-         detail={"name": body.name, "host": body.host, "version": body.version})
+         detail={"name": body.name, "host": body.host, "version": body.version,
+                 "kind": body.kind})
     conn.commit()
     return AgentRegisterResponse(
         agent_id=aid,
