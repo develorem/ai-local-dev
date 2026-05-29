@@ -11,6 +11,7 @@ dispatches straight to the route functions with a real DB connection instead.
 No loopback, no duplicated business logic.
 """
 
+import contextvars
 from urllib.parse import parse_qs, urlparse
 
 import orchestrai_mcp
@@ -18,6 +19,12 @@ from server.db.connection import get_db
 from server.models import ProjectCreate, ProjectUpdate, TaskCreate, TaskStatusUpdate
 from server.routes import projects as P
 from server.routes import tasks as T
+from server.util import utcnow_iso
+
+# The agent making the current MCP request (resolved from its bearer token), or
+# None for anonymous. Set per-request by the identity wrapper; read by the
+# dispatch/route layer (e.g. for attribution and, later, per-project access).
+current_agent: contextvars.ContextVar = contextvars.ContextVar("current_agent", default=None)
 
 
 def _hub_dispatch(method: str, path: str, body: dict | None = None):
@@ -49,10 +56,45 @@ def _hub_dispatch(method: str, path: str, body: dict | None = None):
 
 orchestrai_mcp.set_backend(_hub_dispatch)
 
+
+def _resolve_agent(token: str | None) -> dict | None:
+    """Look up the agent for a bearer token and mark it connected. Returns
+    {id, name, kind} or None for an unknown/absent token (anonymous)."""
+    if not token:
+        return None
+    with get_db() as conn:
+        r = conn.execute("SELECT id, name, kind FROM agents WHERE lease_token = ?",
+                         (token,)).fetchone()
+        if not r:
+            return None
+        conn.execute("UPDATE agents SET status = 'connected', last_heartbeat_at = ? "
+                     "WHERE id = ?", (utcnow_iso(), r["id"]))
+        conn.commit()
+        return {"id": r["id"], "name": r["name"], "kind": r["kind"]}
+
+
+def _with_identity(inner):
+    """ASGI wrapper: resolve the request's bearer token to a registered agent,
+    mark it connected, and expose it via `current_agent` for the request."""
+    async def app(scope, receive, send):
+        if scope.get("type") == "http":
+            token = None
+            for k, v in scope.get("headers", []):
+                if k == b"authorization":
+                    val = v.decode("latin-1")
+                    if val.lower().startswith("bearer "):
+                        token = val[7:].strip()
+                    break
+            current_agent.set(_resolve_agent(token))
+        await inner(scope, receive, send)
+    return app
+
+
 mcp_server = orchestrai_mcp.mcp
 # Calling this lazily creates the session manager (which the hub lifespan runs).
 # We mount the manager's raw ASGI handler rather than this wrapper app: the
 # wrapper has an inner route at "/", so a bare POST /mcp (no trailing slash)
-# 405s. The handler ignores the sub-path, so both /mcp and /mcp/ work.
+# 405s. The handler ignores the sub-path, so both /mcp and /mcp/ work. Wrapped to
+# identify the calling agent from its bearer token.
 mcp_server.streamable_http_app()
-mcp_asgi = mcp_server.session_manager.handle_request
+mcp_asgi = _with_identity(mcp_server.session_manager.handle_request)
