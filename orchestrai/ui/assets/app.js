@@ -899,11 +899,6 @@ function copyText(text, label = 'Copied') {
     () => toast('Copy failed — select the text and copy manually', 'error'));
 }
 
-function mcpJsonFor(origin) {
-  return JSON.stringify(
-    { mcpServers: { orchestrai: { type: 'http', url: `${origin}/mcp` } } }, null, 2);
-}
-
 function claudeMdFor(name, slug) {
   return [
     '## Task tracking (OrchestrAi)',
@@ -922,63 +917,109 @@ function claudeMdFor(name, slug) {
 const _CODE_STYLE = 'background:#0d1117;border:1px solid #30363d;padding:12px;border-radius:6px;' +
   'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:12px;margin:6px 0;';
 
+function mcpJsonForAgent(origin, token) {
+  const server = { type: 'http', url: `${origin}/mcp` };
+  if (token) server.headers = { Authorization: `Bearer ${token}` };
+  return JSON.stringify({ mcpServers: { orchestrai: server } }, null, 2);
+}
+
+function downloadText(filename, text, mime = 'application/json') {
+  const a = el('a', { href: URL.createObjectURL(new Blob([text], { type: mime })), download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
 route('/connect', async () => {
   setActiveNav('connect');
   setBreadcrumb([{ label: 'Connect an agent' }]);
   const origin = location.origin;
-  const addCmd = `claude mcp add --transport http orchestrai ${origin}/mcp`;
   const content = $('#content');
   content.innerHTML = `
     <h1>Connect an agent</h1>
-    <p class="muted">Let Claude (or any MCP client) track its tasks here. Tasks created
-    this way are tracked-only — the OrchestrAi worker won't run them — so you manage the
-    agent's work live in this UI.</p>
+    <p class="muted">Register an agent (e.g. a Claude Code instance), drop its config into your
+    project, and it connects to OrchestrAi identified — so you can see it here and control what
+    it works on.</p>
 
-    <h2>1. Add the MCP server</h2>
-    <p class="muted">Run this wherever your agent lives. Connects by URL — nothing to install.</p>
-    <pre id="add-cmd" style="${_CODE_STYLE}"></pre>
-    <button id="copy-cmd">Copy command</button>
-    <button id="dl-json">Download .mcp.json</button>
+    <h2>1. Register the agent</h2>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="agent-name" placeholder="e.g. Claude on my-laptop" style="flex:1;max-width:360px;" />
+      <button id="register-agent">Register &amp; get config</button>
+    </div>
+    <div id="agent-config" style="display:none;margin-top:10px;">
+      <p class="muted">⚠️ The token is shown <strong>once</strong> — save this config. Run it where your agent lives:</p>
+      <pre id="add-cmd" style="${_CODE_STYLE}"></pre>
+      <button id="copy-cmd">Copy command</button>
+      <button id="dl-json">Download .mcp.json</button>
+    </div>
+    <p class="muted" style="margin-top:8px;">Just trying it out? Connect anonymously (no identity):
+      <code>claude mcp add --transport http orchestrai ${origin}/mcp</code></p>
 
-    <h2>2. Pick the project to track into</h2>
-    <p class="muted">The slug below goes into the snippet. Your agent can also create the
-    project itself by calling <code>use_project</code>.</p>
+    <h2>Your agents</h2>
+    <div id="agents-list"><p class="muted">…</p></div>
+
+    <h2>2. Tell the agent to track tasks</h2>
+    <p class="muted">Pick the project, then paste this into its <code>CLAUDE.md</code> — this is
+    what makes the agent actually use the tools.</p>
     <select id="connect-project"></select>
-
-    <h2>3. Tell your agent to use it</h2>
-    <p class="muted">Paste into the project's <code>CLAUDE.md</code> (or your agent's
-    system instructions) — this is what makes the agent actually track tasks.</p>
     <pre id="claude-md" style="${_CODE_STYLE}"></pre>
     <button id="copy-md">Copy snippet</button>
   `;
-  $('#add-cmd').textContent = addCmd;
+
+  const renderAgents = async () => {
+    let agents = [];
+    try { agents = ((await api('/agents')).items || []).filter((a) => a.kind === 'external'); }
+    catch (e) { /* ignore */ }
+    const host = $('#agents-list');
+    host.innerHTML = '';
+    if (!agents.length) {
+      host.appendChild(el('p', { class: 'muted' }, 'No agents registered yet.'));
+      return;
+    }
+    const tb = el('tbody', {});
+    for (const a of agents) {
+      tb.appendChild(el('tr', {},
+        el('td', {}, a.name), el('td', {}, pill(a.status)),
+        el('td', {}, fmtTime(a.last_heartbeat_at))));
+    }
+    host.appendChild(el('table', { class: 'table' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Name'), el('th', {}, 'Status'), el('th', {}, 'Last seen'))),
+      tb));
+  };
+  await renderAgents();
+
+  $('#register-agent').onclick = async () => {
+    const name = $('#agent-name').value.trim();
+    if (!name) { toast('Enter a name for the agent', 'error'); return; }
+    let reg;
+    try { reg = await api('/agents/register', { method: 'POST', body: { name, kind: 'external' } }); }
+    catch (e) { toast('Register failed: ' + e.message, 'error'); return; }
+    const token = reg.lease_token;
+    const cmd = `claude mcp add --transport http --header "Authorization: Bearer ${token}" orchestrai ${origin}/mcp`;
+    $('#add-cmd').textContent = cmd;
+    $('#agent-config').style.display = '';
+    $('#copy-cmd').onclick = () => copyText(cmd, 'Command copied');
+    $('#dl-json').onclick = () => downloadText('.mcp.json', mcpJsonForAgent(origin, token));
+    toast(`Registered "${name}" — config below (token shown once)`, 'success');
+    await renderAgents();
+  };
 
   const sel = $('#connect-project');
   let projects = [];
   try { projects = (await api('/projects')).items || []; } catch (e) { /* ignore */ }
   if (!projects.length) {
-    sel.appendChild(el('option', { value: '' }, '(no projects yet — your agent will create one)'));
+    sel.appendChild(el('option', { value: '' }, '(no projects yet — your agent can create one)'));
   }
   for (const p of projects) {
     const tag = p.execution_mode === 'auto' ? ' — autopilot' : '';
     sel.appendChild(el('option', { value: p.slug }, `${p.name} (${p.slug})${tag}`));
   }
-
   const renderSnippet = () => {
     const slug = sel.value || 'my-project';
-    const proj = projects.find(p => p.slug === slug);
+    const proj = projects.find((p) => p.slug === slug);
     $('#claude-md').textContent = claudeMdFor(proj ? proj.name : 'My Project', slug);
   };
   renderSnippet();
   sel.onchange = renderSnippet;
-
-  $('#copy-cmd').onclick = () => copyText(addCmd, 'Command copied');
   $('#copy-md').onclick = () => copyText($('#claude-md').textContent, 'Snippet copied');
-  $('#dl-json').onclick = () => {
-    const blob = new Blob([mcpJsonFor(origin)], { type: 'application/json' });
-    const a = el('a', { href: URL.createObjectURL(blob), download: '.mcp.json' });
-    document.body.appendChild(a); a.click(); a.remove();
-  };
 });
 
 route('/vault', async () => {
