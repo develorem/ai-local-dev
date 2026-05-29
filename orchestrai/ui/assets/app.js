@@ -456,6 +456,51 @@ route('/projects/:project_id', async ({ project_id }) => {
     content.appendChild(card);
   }
 
+  // ---- Access (which agents may pick up this project's tasks) ---------
+  const accessCard = el('div', { class: 'card' },
+    el('h3', {}, 'Access'),
+    el('div', { class: 'muted', style: 'margin-bottom:6px;font-size:12px;' },
+      "Which agents may pick up this project's tasks. No grants = nobody picks it up."));
+  const grantsHost = el('div', {});
+  accessCard.appendChild(grantsHost);
+  content.appendChild(accessCard);
+
+  const renderGrants = async () => {
+    grantsHost.innerHTML = '';
+    let grants = [], agents = [];
+    try { grants = (await api(`/projects/${project_id}/agents`)).items || []; } catch (e) { /* */ }
+    try { agents = (await api('/agents')).items || []; } catch (e) { /* */ }
+    if (!grants.length) grantsHost.appendChild(el('div', { class: 'muted' }, 'No agents granted.'));
+    for (const g of grants) {
+      const label = g.grantee_type === 'kind'
+        ? (g.grantee === 'worker' ? 'OrchestrAi worker (all instances)' : `kind: ${g.grantee}`)
+        : (g.agent_name || g.grantee);
+      grantsHost.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin:3px 0;' },
+        el('span', {}, label),
+        (g.grantee_type === 'agent' && g.agent_status) ? pill(g.agent_status) : null,
+        el('button', {
+          onClick: async () => {
+            await api(`/projects/${project_id}/agents`, {
+              method: 'DELETE', body: { grantee_type: g.grantee_type, grantee: g.grantee } });
+            toast('Access revoked', 'success'); renderGrants();
+          } }, 'Revoke')));
+    }
+    const opts = [el('option', { value: 'kind:worker' }, 'OrchestrAi worker')];
+    for (const a of agents.filter((a) => a.kind === 'external')) {
+      opts.push(el('option', { value: `agent:${a.id}` }, `${a.name} (external)`));
+    }
+    const addSel = el('select', {}, ...opts);
+    grantsHost.appendChild(el('div', { style: 'margin-top:8px;' }, addSel,
+      el('button', { style: 'margin-left:6px;',
+        onClick: async () => {
+          const v = addSel.value; const i = v.indexOf(':');
+          await api(`/projects/${project_id}/agents`, {
+            method: 'POST', body: { grantee_type: v.slice(0, i), grantee: v.slice(i + 1) } });
+          toast('Access granted', 'success'); renderGrants();
+        } }, '+ Grant access')));
+  };
+  await renderGrants();
+
   // ---- Goals (the most important entry point — keep at top) -----------
   content.appendChild(el('h2', {}, `Goals (${data.goals.length})`,
     el('button', { style: 'margin-left:12px;',

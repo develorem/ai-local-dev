@@ -194,3 +194,61 @@ def archive_project(project_id: str, conn=Depends(db_dep)):
          project_id=project_id, actor="user", detail={})
     conn.commit()
     return {"ok": True}
+
+
+# ---- Per-project agent access (which agents may pick up this project's tasks) ----
+
+@router.get("/{project_id}/agents")
+def list_project_agents(project_id: str, conn=Depends(db_dep)):
+    if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
+        raise HTTPException(404)
+    out = []
+    for r in conn.execute(
+        "SELECT grantee_type, grantee, created_at FROM project_agents "
+        "WHERE project_id = ? ORDER BY created_at", (project_id,)
+    ):
+        g = {"grantee_type": r["grantee_type"], "grantee": r["grantee"],
+             "created_at": r["created_at"]}
+        if r["grantee_type"] == "agent":
+            a = conn.execute("SELECT name, status FROM agents WHERE id = ?",
+                             (r["grantee"],)).fetchone()
+            g["agent_name"] = a["name"] if a else "(unknown agent)"
+            g["agent_status"] = a["status"] if a else None
+        out.append(g)
+    return {"items": out}
+
+
+@router.post("/{project_id}/agents", status_code=201)
+def grant_project_agent(project_id: str, body: dict, conn=Depends(db_dep)):
+    if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
+        raise HTTPException(404)
+    gtype = (body or {}).get("grantee_type")
+    grantee = (body or {}).get("grantee")
+    if gtype not in ("agent", "kind") or not grantee:
+        raise HTTPException(400, detail={"error": {"code": "bad_grant",
+                            "message": "grantee_type must be 'agent'|'kind' and grantee non-empty"}})
+    if gtype == "kind" and grantee not in ("worker", "external"):
+        raise HTTPException(400, detail={"error": {"code": "bad_kind"}})
+    if gtype == "agent" and not conn.execute(
+            "SELECT 1 FROM agents WHERE id = ?", (grantee,)).fetchone():
+        raise HTTPException(404, detail={"error": {"code": "agent_not_found"}})
+    conn.execute("INSERT OR IGNORE INTO project_agents (project_id, grantee_type, grantee) "
+                 "VALUES (?, ?, ?)", (project_id, gtype, grantee))
+    emit(conn, "project.agent_granted", "project", project_id,
+         project_id=project_id, actor="user",
+         detail={"grantee_type": gtype, "grantee": grantee})
+    conn.commit()
+    return {"ok": True}
+
+
+@router.delete("/{project_id}/agents")
+def revoke_project_agent(project_id: str, body: dict, conn=Depends(db_dep)):
+    gtype = (body or {}).get("grantee_type")
+    grantee = (body or {}).get("grantee")
+    conn.execute("DELETE FROM project_agents WHERE project_id = ? AND grantee_type = ? "
+                 "AND grantee = ?", (project_id, gtype, grantee))
+    emit(conn, "project.agent_revoked", "project", project_id,
+         project_id=project_id, actor="user",
+         detail={"grantee_type": gtype, "grantee": grantee})
+    conn.commit()
+    return {"ok": True}
