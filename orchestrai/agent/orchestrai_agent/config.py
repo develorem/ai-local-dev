@@ -6,6 +6,9 @@ import socket
 
 class Config:
     HUB_URL: str = os.environ.get("ORCHESTRAI_HUB_URL", "http://hub:6724").rstrip("/")
+    # Operator token, used only to authenticate this worker's registration call
+    # (thereafter it uses its per-agent lease token). Must match the hub's.
+    OPERATOR_TOKEN: str = os.environ.get("ORCHESTRAI_OPERATOR_TOKEN", "").strip()
     OLLAMA_URL: str = os.environ.get("OLLAMA_URL", "http://ollama:11434").rstrip("/")
     AGENT_NAME: str = os.environ.get("AGENT_NAME", f"agent@{socket.gethostname()}")
     AGENT_HOST: str = os.environ.get("AGENT_HOST", socket.gethostname())

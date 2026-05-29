@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from server.auth import AUTH_ENABLED, auth_middleware
 from server.config import config
 from server.db import init_db, run_migrations
 from server.mcp_integration import mcp_asgi, mcp_server
@@ -31,6 +32,11 @@ async def lifespan(app: FastAPI):
           flush=True)
     reaper_task = start_reaper()
     print(f"[orchestrai] reaper started (interval={config.REAPER_INTERVAL_SEC}s)", flush=True)
+    if AUTH_ENABLED:
+        print("[orchestrai] token auth ENABLED (operator token set)", flush=True)
+    else:
+        print("[orchestrai] WARNING: token auth DISABLED — no operator token set. "
+              "Do NOT expose this hub to an untrusted network.", flush=True)
     # Run the MCP streamable-HTTP session manager for the life of the app.
     async with mcp_server.session_manager.run():
         print("[orchestrai] MCP endpoint mounted at /mcp", flush=True)
@@ -45,6 +51,9 @@ app = FastAPI(
     version=config.VERSION,
     lifespan=lifespan,
 )
+
+# Token auth on every route except health / webhooks / static UI (see server.auth).
+app.middleware("http")(auth_middleware)
 
 app.include_router(api)
 

@@ -4,6 +4,39 @@ const API = '/api';
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// ---- Auth: the operator token (if the hub requires one) ------------------
+let AUTH_TOKEN = localStorage.getItem('orchestrai_token') || '';
+let _loginShown = false;
+
+function showLogin() {
+  if (_loginShown) return;
+  _loginShown = true;
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <h1>Sign in</h1>
+    <p class="muted">This OrchestrAi hub requires an operator token.</p>
+    <div style="display:flex;gap:8px;align-items:center;max-width:420px;">
+      <input id="op-token" type="password" placeholder="Operator token"
+             style="flex:1;" />
+      <button id="op-login">Sign in</button>
+    </div>`;
+  const submit = () => {
+    const t = document.getElementById('op-token').value.trim();
+    if (!t) return;
+    localStorage.setItem('orchestrai_token', t);
+    location.reload();
+  };
+  document.getElementById('op-login').onclick = submit;
+  document.getElementById('op-token').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+  });
+}
+
+function signOut() {
+  localStorage.removeItem('orchestrai_token');
+  location.reload();
+}
+
 // ---- Toast notifications -------------------------------------------------
 function toast(msg, kind = 'info', ttlMs = 3500) {
   let host = document.getElementById('toast-host');
@@ -44,11 +77,17 @@ const el = (tag, attrs = {}, ...children) => {
 const pill = (status) => el('span', { class: `pill pill-${status}` }, status);
 
 async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (AUTH_TOKEN) headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
   const res = await fetch(API + path, {
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
     ...opts,
+    headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401) {
+    showLogin();
+    throw new Error('401: unauthorized');
+  }
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`${res.status}: ${txt}`);
@@ -77,7 +116,8 @@ let ws = null;
 const wsListeners = new Set();
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/api/events`);
+  const q = AUTH_TOKEN ? `?token=${encodeURIComponent(AUTH_TOKEN)}` : '';
+  ws = new WebSocket(`${proto}://${location.host}/api/events${q}`);
   ws.onopen = () => console.log('[ws] connected');
   ws.onmessage = (msg) => {
     try {

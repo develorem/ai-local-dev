@@ -4,6 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from server.auth import AUTH_ENABLED, is_token_valid
 from server.db.connection import db_dep
 from server.events import event_row_to_dict
 from server.ws import manager
@@ -51,6 +52,10 @@ def list_events(
 
 @router.websocket("/events")
 async def ws_events(ws: WebSocket):
+    # Browsers can't set headers on a WS upgrade, so the token rides in ?token=.
+    if AUTH_ENABLED and not is_token_valid(ws.query_params.get("token")):
+        await ws.close(code=1008)  # policy violation
+        return
     await manager.connect(ws)
     try:
         while True:

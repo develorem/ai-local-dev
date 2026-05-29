@@ -41,7 +41,13 @@ class HubClient:
             "capabilities": config.CAPABILITIES + port_caps,
             "http_ports": config.HTTP_PORTS,
         }
-        r = await self._client.post(f"{self.base}/api/agents/register", json=body)
+        # Registration is an operator action — present the operator token. After
+        # this, calls authenticate with the returned per-agent lease token.
+        reg_headers = {"Content-Type": "application/json"}
+        if config.OPERATOR_TOKEN:
+            reg_headers["Authorization"] = f"Bearer {config.OPERATOR_TOKEN}"
+        r = await self._client.post(f"{self.base}/api/agents/register", json=body,
+                                    headers=reg_headers)
         r.raise_for_status()
         data = r.json()
         self.agent_id = data["agent_id"]

@@ -12,9 +12,11 @@ No loopback, no duplicated business logic.
 """
 
 import contextvars
+import json
 from urllib.parse import parse_qs, urlparse
 
 import orchestrai_mcp
+from server.auth import AUTH_ENABLED
 from server.db.connection import get_db
 from server.models import ProjectCreate, ProjectUpdate, TaskCreate, TaskStatusUpdate
 from server.routes import projects as P
@@ -115,9 +117,17 @@ def _resolve_agent(token: str | None) -> dict | None:
         return {"id": r["id"], "name": r["name"], "kind": r["kind"]}
 
 
+async def _send_401(send, msg: str) -> None:
+    body = json.dumps({"error": {"code": "unauthorized", "message": msg}}).encode()
+    await send({"type": "http.response.start", "status": 401,
+                "headers": [(b"content-type", b"application/json")]})
+    await send({"type": "http.response.body", "body": body})
+
+
 def _with_identity(inner):
     """ASGI wrapper: resolve the request's bearer token to a registered agent,
-    mark it connected, and expose it via `current_agent` for the request."""
+    mark it connected, and expose it via `current_agent` for the request. When
+    auth is enabled, a valid agent token is REQUIRED — no anonymous MCP."""
     async def app(scope, receive, send):
         if scope.get("type") == "http":
             token = None
@@ -127,7 +137,13 @@ def _with_identity(inner):
                     if val.lower().startswith("bearer "):
                         token = val[7:].strip()
                     break
-            current_agent.set(_resolve_agent(token))
+            agent = _resolve_agent(token)
+            if AUTH_ENABLED and agent is None:
+                await _send_401(send, "MCP requires a registered agent token. "
+                                "Register an agent in the OrchestrAi UI (Connect) "
+                                "and connect with its token.")
+                return
+            current_agent.set(agent)
         await inner(scope, receive, send)
     return app
 

@@ -38,6 +38,9 @@ services:
     environment:
       OLLAMA_URL: http://ollama:11434
       DATA_DIR: /data
+      # Operator (admin) token — required for the UI + admin API once set, and
+      # enforced across the hub. CHANGE THIS before exposing the hub anywhere.
+      ORCHESTRAI_OPERATOR_TOKEN: ${ORCHESTRAI_OPERATOR_TOKEN:-orchestrai-dev-operator-change-me}
     volumes:
       - ./data:/data
     ports:
@@ -57,6 +60,8 @@ services:
     environment:
       ORCHESTRAI_HUB_URL: http://hub:6724
       OLLAMA_URL: http://ollama:11434
+      # Must match the hub's — used to authenticate this worker's registration.
+      ORCHESTRAI_OPERATOR_TOKEN: ${ORCHESTRAI_OPERATOR_TOKEN:-orchestrai-dev-operator-change-me}
       AGENT_NAME: "agent@${COMPUTERNAME:-local}"
       MODEL_PRIMARY: qwen2.5-coder:14b
       INFERENCE_NUM_CTX: "16384"
