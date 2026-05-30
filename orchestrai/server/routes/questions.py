@@ -8,11 +8,12 @@ When a `plan_approval` question is answered:
   - discuss              → open a discussion thread linked to the goal
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import AnswerQuestion
+from server.services import access
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(prefix="/questions", tags=["questions"])
@@ -34,19 +35,26 @@ def _row_to_question(row) -> dict:
 
 
 @router.get("")
-def list_questions(status: str = "pending", limit: int = 100, conn=Depends(db_dep)):
+def list_questions(request: Request, status: str = "pending", limit: int = 100, conn=Depends(db_dep)):
     limit = max(1, min(limit, 500))
+    # Restrict to questions on tasks in the caller's accessible projects.
+    frag, fparams = access.project_filter(request, conn, "t.project_id")
+    where = "q.status = ?"
+    params = [status]
+    if frag:
+        where += f" AND {frag}"
+        params.extend(fparams)
     rows = conn.execute(
-        """
+        f"""
         SELECT q.*, t.title AS task_title, t.project_id AS project_id,
                g.title AS goal_title
         FROM questions q
         LEFT JOIN tasks t ON t.id = q.task_id
         LEFT JOIN outcomes g ON g.id = t.outcome_id
-        WHERE q.status = ?
+        WHERE {where}
         ORDER BY q.created_at ASC LIMIT ?
         """,
-        (status, limit),
+        (*params, limit),
     ).fetchall()
     items = []
     for r in rows:
@@ -59,7 +67,8 @@ def list_questions(status: str = "pending", limit: int = 100, conn=Depends(db_de
 
 
 @router.get("/{question_id}")
-def get_question(question_id: str, conn=Depends(db_dep)):
+def get_question(question_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_question(request, conn, question_id)
     row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -67,7 +76,8 @@ def get_question(question_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/{question_id}/answer")
-def answer_question(question_id: str, body: AnswerQuestion, conn=Depends(db_dep)):
+def answer_question(question_id: str, body: AnswerQuestion, request: Request, conn=Depends(db_dep)):
+    access.assert_question(request, conn, question_id)
     row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
     if not row:
         raise HTTPException(404)

@@ -16,10 +16,19 @@ from server.models import (
     AgentRegister, AgentRegisterResponse,
 )
 from server.routes.tasks import row_to_task
-from server.services import doc_index
+from server.services import access, doc_index
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+def _scope_agent(request, conn, agent_id: str):
+    """A user may only see/manage agents in their orgs; operator/superadmin all."""
+    a = conn.execute("SELECT org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if not a:
+        raise HTTPException(404)
+    access.assert_org(request, conn, a["org_id"] or "org_default")
+    return a
 
 
 def _auth(authorization: Optional[str], agent_id: str, conn) -> dict:
@@ -361,7 +370,8 @@ def list_agents(request: Request, org_id: Optional[str] = None, conn=Depends(db_
 
 
 @router.get("/{agent_id}")
-def get_agent(agent_id: str, conn=Depends(db_dep)):
+def get_agent(agent_id: str, request: Request, conn=Depends(db_dep)):
+    _scope_agent(request, conn, agent_id)
     row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -401,9 +411,10 @@ def get_agent(agent_id: str, conn=Depends(db_dep)):
 
 
 @router.get("/{agent_id}/config")
-def agent_config(agent_id: str, conn=Depends(db_dep)):
+def agent_config(agent_id: str, request: Request, conn=Depends(db_dep)):
     """Return an agent's connection token so the UI can (re)build its mcp.json.
-    Local single-user tool — the token is shown to the operator on purpose."""
+    Scoped to org members — the token is sensitive."""
+    _scope_agent(request, conn, agent_id)
     r = conn.execute("SELECT id, name, lease_token FROM agents WHERE id = ?",
                      (agent_id,)).fetchone()
     if not r:
@@ -412,8 +423,9 @@ def agent_config(agent_id: str, conn=Depends(db_dep)):
 
 
 @router.get("/{agent_id}/projects")
-def agent_projects(agent_id: str, conn=Depends(db_dep)):
+def agent_projects(agent_id: str, request: Request, conn=Depends(db_dep)):
     """Projects this agent may act on — granted directly (by id) or via its kind."""
+    _scope_agent(request, conn, agent_id)
     a = conn.execute("SELECT kind FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not a:
         raise HTTPException(404)
@@ -428,8 +440,9 @@ def agent_projects(agent_id: str, conn=Depends(db_dep)):
 
 
 @router.delete("/{agent_id}")
-def delete_agent(agent_id: str, conn=Depends(db_dep)):
+def delete_agent(agent_id: str, request: Request, conn=Depends(db_dep)):
     """Remove an agent and any access grants made to it specifically."""
+    _scope_agent(request, conn, agent_id)
     if not conn.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
         raise HTTPException(404)
     conn.execute("DELETE FROM project_agents WHERE grantee_type = 'agent' AND grantee = ?",

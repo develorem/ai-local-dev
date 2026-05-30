@@ -2,11 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 
 from server.auth import AUTH_ENABLED, resolve_principal
 from server.db.connection import db_dep
 from server.events import event_row_to_dict
+from server.services import access
 from server.ws import manager
 
 router = APIRouter(tags=["events"])
@@ -14,6 +15,7 @@ router = APIRouter(tags=["events"])
 
 @router.get("/events")
 def list_events(
+    request: Request,
     since: Optional[str] = None,
     kind: Optional[str] = None,
     project_id: Optional[str] = None,
@@ -24,6 +26,12 @@ def list_events(
 ):
     limit = max(1, min(limit, 1000))
     where, params = [], []
+    if project_id:
+        access.assert_project(request, conn, project_id)
+    else:
+        frag, fparams = access.project_filter(request, conn, "project_id")
+        if frag:
+            where.append(frag); params.extend(fparams)
     if since:
         where.append("ts > ?"); params.append(since)
     if kind:

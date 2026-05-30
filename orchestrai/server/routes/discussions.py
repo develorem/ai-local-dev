@@ -4,13 +4,23 @@ plus proposed-actions that mutate the task graph when applied by the human.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
+from server.services import access
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(tags=["discussions"])
+
+
+def _scope_discussion(request, conn, discussion_id: str) -> dict:
+    row = conn.execute("SELECT project_id FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    if row["project_id"]:
+        access.assert_project(request, conn, row["project_id"])
+    return row
 
 
 def _row_to_discussion(row) -> dict:
@@ -55,7 +65,7 @@ def _row_to_proposed(row) -> dict:
 # ---------- Discussions -----------------------------------------------------
 
 @router.post("/discussions", status_code=201)
-def create_discussion(body: dict, conn=Depends(db_dep)):
+def create_discussion(body: dict, request: Request, conn=Depends(db_dep)):
     body = body or {}
     title = (body.get("title") or "").strip()
     project_id = body.get("project_id")
@@ -75,6 +85,9 @@ def create_discussion(body: dict, conn=Depends(db_dep)):
         gr = conn.execute("SELECT project_id FROM outcomes WHERE id = ?", (outcome_id,)).fetchone()
         if gr:
             project_id = gr["project_id"]
+
+    if project_id:
+        access.assert_project(request, conn, project_id)
 
     did = new_id()
     now = utcnow_iso()
@@ -99,14 +112,19 @@ def create_discussion(body: dict, conn=Depends(db_dep)):
 
 
 @router.get("/discussions")
-def list_discussions(status: Optional[str] = None, project_id: Optional[str] = None,
+def list_discussions(request: Request, status: Optional[str] = None, project_id: Optional[str] = None,
                      limit: int = 50, conn=Depends(db_dep)):
     limit = max(1, min(limit, 500))
     where, params = [], []
     if status:
         where.append("status = ?"); params.append(status)
     if project_id:
+        access.assert_project(request, conn, project_id)
         where.append("project_id = ?"); params.append(project_id)
+    else:
+        frag, fparams = access.project_filter(request, conn, "project_id")
+        if frag:
+            where.append(frag); params.extend(fparams)
     q = "SELECT * FROM discussions"
     if where:
         q += " WHERE " + " AND ".join(where)
@@ -117,7 +135,8 @@ def list_discussions(status: Optional[str] = None, project_id: Optional[str] = N
 
 
 @router.get("/discussions/{discussion_id}")
-def get_discussion(discussion_id: str, conn=Depends(db_dep)):
+def get_discussion(discussion_id: str, request: Request, conn=Depends(db_dep)):
+    _scope_discussion(request, conn, discussion_id)
     row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -137,7 +156,8 @@ def get_discussion(discussion_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/discussions/{discussion_id}/close")
-def close_discussion(discussion_id: str, conn=Depends(db_dep)):
+def close_discussion(discussion_id: str, request: Request, conn=Depends(db_dep)):
+    _scope_discussion(request, conn, discussion_id)
     row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -156,7 +176,8 @@ def close_discussion(discussion_id: str, conn=Depends(db_dep)):
 # ---------- Messages -------------------------------------------------------
 
 @router.post("/discussions/{discussion_id}/messages", status_code=201)
-def post_user_message(discussion_id: str, body: dict, conn=Depends(db_dep)):
+def post_user_message(discussion_id: str, body: dict, request: Request, conn=Depends(db_dep)):
+    _scope_discussion(request, conn, discussion_id)
     row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -189,9 +210,10 @@ def post_user_message(discussion_id: str, body: dict, conn=Depends(db_dep)):
 # ---------- Agent endpoint for posting agent replies ------------------------
 
 @router.post("/discussions/{discussion_id}/agent-message", status_code=201)
-def post_agent_message(discussion_id: str, body: dict, conn=Depends(db_dep)):
+def post_agent_message(discussion_id: str, body: dict, request: Request, conn=Depends(db_dep)):
     """Called by the agent's discuss handler. Adds the agent's reply and any
     proposed actions atomically."""
+    _scope_discussion(request, conn, discussion_id)
     row = conn.execute("SELECT * FROM discussions WHERE id = ?", (discussion_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -237,21 +259,29 @@ proposed_router = APIRouter(prefix="/proposed-actions", tags=["proposed_actions"
 
 
 @proposed_router.get("")
-def list_proposed(conn=Depends(db_dep)):
+def list_proposed(request: Request, conn=Depends(db_dep)):
+    frag, fparams = access.project_filter(request, conn, "d.project_id")
+    where = "pa.status='proposed'"
+    if frag:
+        where += f" AND {frag}"
     rows = conn.execute(
-        "SELECT * FROM proposed_actions WHERE status='proposed' ORDER BY created_at ASC"
+        f"SELECT pa.* FROM proposed_actions pa "
+        f"LEFT JOIN discussions d ON d.id = pa.discussion_id "
+        f"WHERE {where} ORDER BY pa.created_at ASC", fparams
     ).fetchall()
     return {"items": [_row_to_proposed(r) for r in rows]}
 
 
 @proposed_router.post("/{action_id}/apply")
-def apply_action(action_id: str, conn=Depends(db_dep)):
+def apply_action(action_id: str, request: Request, conn=Depends(db_dep)):
     row = conn.execute("SELECT * FROM proposed_actions WHERE id = ?", (action_id,)).fetchone()
     if not row:
         raise HTTPException(404)
     if row["status"] != "proposed":
         raise HTTPException(409, detail={"error": {"code": "not_proposed"}})
     disc = conn.execute("SELECT * FROM discussions WHERE id = ?", (row["discussion_id"],)).fetchone()
+    if disc and disc["project_id"]:
+        access.assert_project(request, conn, disc["project_id"])
     payload = json_loads(row["payload"], {})
     action_type = row["action_type"]
     now = utcnow_iso()
@@ -340,10 +370,13 @@ def apply_action(action_id: str, conn=Depends(db_dep)):
 
 
 @proposed_router.post("/{action_id}/reject")
-def reject_action(action_id: str, conn=Depends(db_dep)):
+def reject_action(action_id: str, request: Request, conn=Depends(db_dep)):
     row = conn.execute("SELECT * FROM proposed_actions WHERE id = ?", (action_id,)).fetchone()
     if not row:
         raise HTTPException(404)
+    disc = conn.execute("SELECT project_id FROM discussions WHERE id = ?", (row["discussion_id"],)).fetchone()
+    if disc and disc["project_id"]:
+        access.assert_project(request, conn, disc["project_id"])
     conn.execute(
         "UPDATE proposed_actions SET status='rejected' WHERE id = ?",
         (action_id,),

@@ -2,11 +2,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit, event_row_to_dict
 from server.models import Task, TaskCreate, TaskUpdate, TaskStatusUpdate
+from server.services import access
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -42,9 +43,10 @@ def row_to_task(row) -> dict:
 
 
 @router.post("", status_code=201)
-def create_task(body: TaskCreate, conn=Depends(db_dep)):
+def create_task(body: TaskCreate, request: Request, conn=Depends(db_dep)):
     if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (body.project_id,)).fetchone():
         raise HTTPException(404, detail={"error": {"code": "project_not_found"}})
+    access.assert_project(request, conn, body.project_id)
 
     tid = new_id()
     now = utcnow_iso()
@@ -74,6 +76,7 @@ def create_task(body: TaskCreate, conn=Depends(db_dep)):
 
 @router.get("")
 def list_tasks(
+    request: Request,
     project_id: Optional[str] = None,
     outcome_id: Optional[str] = None,
     repo_id: Optional[str] = None,
@@ -86,6 +89,12 @@ def list_tasks(
 ):
     limit = max(1, min(limit, 500))
     where, params = [], []
+    if project_id:
+        access.assert_project(request, conn, project_id)
+    else:
+        frag, fparams = access.project_filter(request, conn, "project_id")
+        if frag:
+            where.append(frag); params.extend(fparams)
     for col, val in (("project_id", project_id), ("outcome_id", outcome_id),
                      ("repo_id", repo_id), ("branch_name", branch_name),
                      ("assigned_agent_id", assigned_agent_id)):
@@ -113,7 +122,8 @@ def list_tasks(
 
 
 @router.get("/{task_id}")
-def get_task(task_id: str, conn=Depends(db_dep)):
+def get_task(task_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_task(request, conn, task_id)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -176,7 +186,8 @@ def get_task(task_id: str, conn=Depends(db_dep)):
 
 
 @router.patch("/{task_id}")
-def update_task(task_id: str, body: TaskUpdate, conn=Depends(db_dep)):
+def update_task(task_id: str, body: TaskUpdate, request: Request, conn=Depends(db_dep)):
+    access.assert_task(request, conn, task_id)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -212,7 +223,8 @@ def update_task(task_id: str, body: TaskUpdate, conn=Depends(db_dep)):
 
 
 @router.post("/{task_id}/cancel")
-def cancel_task(task_id: str, conn=Depends(db_dep)):
+def cancel_task(task_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_task(request, conn, task_id)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -252,7 +264,8 @@ def cancel_task(task_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/{task_id}/retry")
-def retry_task(task_id: str, conn=Depends(db_dep)):
+def retry_task(task_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_task(request, conn, task_id)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -282,7 +295,8 @@ def retry_task(task_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/{task_id}/notes")
-def append_note(task_id: str, body: dict, conn=Depends(db_dep)):
+def append_note(task_id: str, body: dict, request: Request, conn=Depends(db_dep)):
+    access.assert_task(request, conn, task_id)
     note = (body or {}).get("note_md", "").strip()
     if not note:
         raise HTTPException(400, detail={"error": {"code": "note_required"}})
@@ -304,7 +318,8 @@ def append_note(task_id: str, body: dict, conn=Depends(db_dep)):
 
 
 @router.post("/{task_id}/status")
-def set_task_status(task_id: str, body: TaskStatusUpdate, conn=Depends(db_dep)):
+def set_task_status(task_id: str, body: TaskStatusUpdate, request: Request, conn=Depends(db_dep)):
+    access.assert_task(request, conn, task_id)
     """Directly transition a task's status. For externally-executed tasks — an
     outside agent (e.g. Claude Code via MCP) marking its own work, or the UI
     managing tracked work — distinct from the worker's claim/result flow.
@@ -347,8 +362,9 @@ def set_task_status(task_id: str, body: TaskStatusUpdate, conn=Depends(db_dep)):
 
 
 @router.post("/{task_id}/events")
-def post_task_event(task_id: str, body: dict, conn=Depends(db_dep)):
+def post_task_event(task_id: str, body: dict, request: Request, conn=Depends(db_dep)):
     """Agent-side: report progress mid-task."""
+    access.assert_task(request, conn, task_id)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -364,7 +380,7 @@ def post_task_event(task_id: str, body: dict, conn=Depends(db_dep)):
 
 
 @router.post("/{task_id}/result")
-def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
+def post_task_result(task_id: str, body: dict, request: Request, conn=Depends(db_dep)):
     """Agent submits the final result of a task.
 
     The Hub dispatches per task type:
@@ -373,6 +389,7 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
         fix_needed -> ready (retry); needs_human -> blocked_on_human with a question
       - discuss / revise: stored on result; status moves to done unless outcome says otherwise
     """
+    access.assert_task(request, conn, task_id)
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not row:
         raise HTTPException(404)

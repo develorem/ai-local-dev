@@ -1,10 +1,11 @@
 """Scheduled tasks — cron specs that materialise tasks into the backlog."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
 from server.scheduler import next_run
+from server.services import access
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(prefix="/scheduled", tags=["scheduled"])
@@ -26,7 +27,8 @@ def _row(r) -> dict:
 
 
 @router.get("")
-def list_scheduled(project_id: str, conn=Depends(db_dep)):
+def list_scheduled(project_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_project(request, conn, project_id)
     rows = conn.execute(
         "SELECT * FROM scheduled_tasks WHERE project_id = ? ORDER BY created_at DESC",
         (project_id,)).fetchall()
@@ -34,11 +36,12 @@ def list_scheduled(project_id: str, conn=Depends(db_dep)):
 
 
 @router.post("", status_code=201)
-def create_scheduled(body: dict, conn=Depends(db_dep)):
+def create_scheduled(body: dict, request: Request, conn=Depends(db_dep)):
     b = body or {}
     pid = b.get("project_id")
     if not pid or not conn.execute("SELECT 1 FROM projects WHERE id = ?", (pid,)).fetchone():
         raise HTTPException(404, detail={"error": {"code": "project_not_found"}})
+    access.assert_project(request, conn, pid)
     cron = (b.get("cron") or "").strip()
     title = (b.get("title") or "").strip()
     name = (b.get("name") or title).strip()
@@ -74,10 +77,11 @@ def create_scheduled(body: dict, conn=Depends(db_dep)):
 
 
 @router.patch("/{scheduled_id}")
-def update_scheduled(scheduled_id: str, body: dict, conn=Depends(db_dep)):
+def update_scheduled(scheduled_id: str, body: dict, request: Request, conn=Depends(db_dep)):
     r = conn.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (scheduled_id,)).fetchone()
     if not r:
         raise HTTPException(404)
+    access.assert_scheduled(request, conn, scheduled_id)
     b = body or {}
     fields, params = [], []
     for f in ("name", "title", "description_md", "task_type", "priority", "cron"):
@@ -101,10 +105,11 @@ def update_scheduled(scheduled_id: str, body: dict, conn=Depends(db_dep)):
 
 
 @router.delete("/{scheduled_id}")
-def delete_scheduled(scheduled_id: str, conn=Depends(db_dep)):
+def delete_scheduled(scheduled_id: str, request: Request, conn=Depends(db_dep)):
     r = conn.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (scheduled_id,)).fetchone()
     if not r:
         raise HTTPException(404)
+    access.assert_scheduled(request, conn, scheduled_id)
     conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (scheduled_id,))
     emit(conn, "scheduled_task.deleted", "project", r["project_id"],
          project_id=r["project_id"], actor="user", detail={"scheduled_task_id": scheduled_id})
@@ -113,10 +118,11 @@ def delete_scheduled(scheduled_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/{scheduled_id}/run-now", status_code=201)
-def run_now(scheduled_id: str, conn=Depends(db_dep)):
+def run_now(scheduled_id: str, request: Request, conn=Depends(db_dep)):
     s = conn.execute("SELECT * FROM scheduled_tasks WHERE id = ?", (scheduled_id,)).fetchone()
     if not s:
         raise HTTPException(404)
+    access.assert_scheduled(request, conn, scheduled_id)
     tid = new_id()
     now = utcnow_iso()
     conn.execute(

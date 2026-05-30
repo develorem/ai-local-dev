@@ -3,12 +3,12 @@
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import Repo, RepoCreate, RepoUpdate
-from server.services import doc_index
+from server.services import access, doc_index
 from server.services.crypto import decrypt
 from server.util import new_id, utcnow_iso
 
@@ -48,10 +48,11 @@ def _row_to_repo(row) -> dict:
 
 
 @router.post("/projects/{project_id}/repos", response_model=Repo, status_code=201)
-def create_repo(project_id: str, body: RepoCreate, conn=Depends(db_dep)):
+def create_repo(project_id: str, body: RepoCreate, request: Request, conn=Depends(db_dep)):
     proj = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
     if not proj:
         raise HTTPException(404, detail={"error": {"code": "project_not_found"}})
+    access.assert_project(request, conn, project_id)
 
     rid = new_id()
     now = utcnow_iso()
@@ -82,7 +83,8 @@ def create_repo(project_id: str, body: RepoCreate, conn=Depends(db_dep)):
 
 
 @router.get("/projects/{project_id}/repos")
-def list_repos(project_id: str, conn=Depends(db_dep)):
+def list_repos(project_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_project(request, conn, project_id)
     rows = conn.execute(
         "SELECT * FROM project_repos WHERE project_id = ? ORDER BY name",
         (project_id,),
@@ -91,7 +93,8 @@ def list_repos(project_id: str, conn=Depends(db_dep)):
 
 
 @router.get("/repos/{repo_id}")
-def get_repo(repo_id: str, conn=Depends(db_dep)):
+def get_repo(repo_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_repo(request, conn, repo_id)
     row = conn.execute("SELECT * FROM project_repos WHERE id = ?", (repo_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -116,7 +119,8 @@ def get_repo(repo_id: str, conn=Depends(db_dep)):
 
 
 @router.patch("/repos/{repo_id}", response_model=Repo)
-def update_repo(repo_id: str, body: RepoUpdate, conn=Depends(db_dep)):
+def update_repo(repo_id: str, body: RepoUpdate, request: Request, conn=Depends(db_dep)):
+    access.assert_repo(request, conn, repo_id)
     row = conn.execute("SELECT * FROM project_repos WHERE id = ?", (repo_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -252,7 +256,8 @@ def reconcile_repo_docs(project_id: str, body: dict,
 
 
 @router.delete("/repos/{repo_id}")
-def delete_repo(repo_id: str, conn=Depends(db_dep)):
+def delete_repo(repo_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_repo(request, conn, repo_id)
     row = conn.execute("SELECT * FROM project_repos WHERE id = ?", (repo_id,)).fetchone()
     if not row:
         raise HTTPException(404)

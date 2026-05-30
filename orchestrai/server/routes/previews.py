@@ -10,10 +10,11 @@ from the browser's own host + that port. Stop queues a teardown task.
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
+from server.services import access
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(tags=["previews"])
@@ -48,7 +49,8 @@ def _available_port(conn) -> Optional[int]:
 
 
 @router.get("/projects/{project_id}/previews")
-def list_previews(project_id: str, conn=Depends(db_dep)):
+def list_previews(project_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_project(request, conn, project_id)
     rows = conn.execute(
         "SELECT * FROM preview_servers WHERE project_id = ? "
         "ORDER BY started_at DESC LIMIT 20", (project_id,)).fetchall()
@@ -56,9 +58,10 @@ def list_previews(project_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/projects/{project_id}/previews/launch", status_code=201)
-def launch_preview(project_id: str, conn=Depends(db_dep)):
+def launch_preview(project_id: str, request: Request, conn=Depends(db_dep)):
     if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
         raise HTTPException(404, detail={"error": {"code": "project_not_found"}})
+    access.assert_project(request, conn, project_id)
     # The primary repo that has a start command configured.
     repo = conn.execute(
         "SELECT id, start_command FROM project_repos WHERE project_id = ? "
@@ -101,10 +104,11 @@ def launch_preview(project_id: str, conn=Depends(db_dep)):
 
 
 @router.post("/previews/{preview_id}/stop")
-def stop_preview(preview_id: str, conn=Depends(db_dep)):
+def stop_preview(preview_id: str, request: Request, conn=Depends(db_dep)):
     row = conn.execute("SELECT * FROM preview_servers WHERE id = ?", (preview_id,)).fetchone()
     if not row:
         raise HTTPException(404)
+    access.assert_preview(request, conn, preview_id)
     now = utcnow_iso()
     # Mark stopped immediately (link disappears) and queue the actual teardown.
     conn.execute("UPDATE preview_servers SET status = 'stopped', last_seen_at = ? "

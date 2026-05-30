@@ -1,8 +1,9 @@
 """Plans: read-only endpoint for fetching a plan's full content + outline."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
+from server.services import access
 from server.util import json_loads
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -24,8 +25,11 @@ def _row_to_plan(row) -> dict:
 
 
 @router.get("/{plan_id}")
-def get_plan(plan_id: str, conn=Depends(db_dep)):
+def get_plan(plan_id: str, request: Request, conn=Depends(db_dep)):
     row = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
     if not row:
         raise HTTPException(404)
+    oc = conn.execute("SELECT project_id FROM outcomes WHERE id = ?", (row["outcome_id"],)).fetchone()
+    if oc:
+        access.assert_project(request, conn, oc["project_id"])
     return {"plan": _row_to_plan(row)}

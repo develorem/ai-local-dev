@@ -6,10 +6,11 @@ Agent endpoint fetches decrypted values with full access-control + audit.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
+from server.services import access
 from server.services.crypto import decrypt, encrypt
 from server.util import new_id, utcnow_iso, json_loads
 
@@ -31,26 +32,34 @@ def _row_to_metadata(row) -> dict:
 # ---------- UI endpoints ---------------------------------------------------
 
 @router.get("")
-def list_secrets(project_id: Optional[str] = None, conn=Depends(db_dep)):
-    """All secrets, or — with project_id — the secrets visible to that project:
-    global ones (inherited) + ones scoped to it. Each item is tagged `inherited`.
+def list_secrets(request: Request, project_id: Optional[str] = None, conn=Depends(db_dep)):
+    """Secrets in the caller's org. With project_id: the org's global secrets
+    (inherited) + ones scoped to that project. Without: the acting org's secrets.
+    Tenant-isolated — never returns another org's secrets to a user.
     """
     if project_id:
+        proj = conn.execute("SELECT org_id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        access.assert_project(request, conn, project_id)
+        org_id = proj["org_id"] if proj else None
         rows = conn.execute(
-            "SELECT * FROM secrets WHERE scope = 'global' OR scope = ? ORDER BY name",
-            (f"project:{project_id}",)).fetchall()
+            "SELECT * FROM secrets WHERE org_id = ? AND (scope = 'global' OR scope = ?) "
+            "ORDER BY name", (org_id, f"project:{project_id}")).fetchall()
         items = []
         for r in rows:
             m = _row_to_metadata(r)
             m["inherited"] = (r["scope"] == "global")
             items.append(m)
         return {"items": items}
-    rows = conn.execute("SELECT * FROM secrets ORDER BY name").fetchall()
+    org_id = access.acting_org_id(request, conn)
+    if not org_id:
+        return {"items": []}
+    access.assert_org(request, conn, org_id)
+    rows = conn.execute("SELECT * FROM secrets WHERE org_id = ? ORDER BY name", (org_id,)).fetchall()
     return {"items": [_row_to_metadata(r) for r in rows]}
 
 
 @router.post("", status_code=201)
-def create_secret(body: dict, conn=Depends(db_dep)):
+def create_secret(body: dict, request: Request, conn=Depends(db_dep)):
     body = body or {}
     name = (body.get("name") or "").strip()
     value = body.get("value")
@@ -62,6 +71,19 @@ def create_secret(body: dict, conn=Depends(db_dep)):
         raise HTTPException(400, detail={"error": {"code": "bad_name",
                                                    "message": "use UPPER_SNAKE_CASE alphanumerics"}})
 
+    # Resolve the owning org: project-scoped inherits the project's org; global
+    # belongs to the acting org. Both validate the caller's membership.
+    if scope.startswith("project:"):
+        pid = scope.split(":", 1)[1]
+        proj = conn.execute("SELECT org_id FROM projects WHERE id = ?", (pid,)).fetchone()
+        access.assert_project(request, conn, pid)
+        org_id = proj["org_id"] if proj else None
+    else:
+        org_id = access.acting_org_id(request, conn)
+        if not org_id:
+            raise HTTPException(400, detail={"error": {"code": "org_required"}})
+        access.assert_org(request, conn, org_id)
+
     now = utcnow_iso()
     try:
         ct = encrypt(str(value))
@@ -71,10 +93,10 @@ def create_secret(body: dict, conn=Depends(db_dep)):
     try:
         conn.execute(
             """
-            INSERT INTO secrets (name, ciphertext, description, scope, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO secrets (name, ciphertext, description, scope, org_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, ct, description, scope, now, now),
+            (name, ct, description, scope, org_id, now, now),
         )
     except Exception as e:
         if "UNIQUE" in str(e) or "PRIMARY KEY" in str(e).upper():
@@ -82,17 +104,18 @@ def create_secret(body: dict, conn=Depends(db_dep)):
         raise
 
     emit(conn, "secret.created", "secret", name, actor="user",
-         detail={"scope": scope})
+         detail={"scope": scope, "org_id": org_id})
     conn.commit()
     row = conn.execute("SELECT * FROM secrets WHERE name = ?", (name,)).fetchone()
     return _row_to_metadata(row)
 
 
 @router.patch("/{name}")
-def update_secret(name: str, body: dict, conn=Depends(db_dep)):
+def update_secret(name: str, body: dict, request: Request, conn=Depends(db_dep)):
     row = conn.execute("SELECT * FROM secrets WHERE name = ?", (name,)).fetchone()
     if not row:
         raise HTTPException(404)
+    access.assert_org(request, conn, row["org_id"] if "org_id" in row.keys() else "org_default")
     body = body or {}
     fields, params = [], []
     if "value" in body and body["value"] is not None:
@@ -115,10 +138,11 @@ def update_secret(name: str, body: dict, conn=Depends(db_dep)):
 
 
 @router.delete("/{name}")
-def delete_secret(name: str, conn=Depends(db_dep)):
+def delete_secret(name: str, request: Request, conn=Depends(db_dep)):
     row = conn.execute("SELECT * FROM secrets WHERE name = ?", (name,)).fetchone()
     if not row:
         raise HTTPException(404)
+    access.assert_org(request, conn, row["org_id"] if "org_id" in row.keys() else "org_default")
     conn.execute("DELETE FROM secrets WHERE name = ?", (name,))
     emit(conn, "secret.deleted", "secret", name, actor="user", detail={})
     conn.commit()
@@ -126,7 +150,11 @@ def delete_secret(name: str, conn=Depends(db_dep)):
 
 
 @router.get("/{name}/accesses")
-def list_accesses(name: str, limit: int = 100, conn=Depends(db_dep)):
+def list_accesses(name: str, request: Request, limit: int = 100, conn=Depends(db_dep)):
+    sec = conn.execute("SELECT org_id FROM secrets WHERE name = ?", (name,)).fetchone()
+    if not sec:
+        raise HTTPException(404)
+    access.assert_org(request, conn, sec["org_id"] or "org_default")
     limit = max(1, min(limit, 500))
     rows = conn.execute(
         """
@@ -205,6 +233,16 @@ def fetch_value(name: str,
             "code": "not_declared",
             "message": f"task.payload.secrets_needed does not include '{name}'",
         }})
+
+    # Tenant check: the secret must belong to the task's project's org. This
+    # blocks a worker granted a project in one org from reading another org's
+    # (even 'global') secret.
+    proj = conn.execute("SELECT org_id FROM projects WHERE id = ?", (task["project_id"],)).fetchone()
+    sec_org = secret["org_id"] if "org_id" in secret.keys() else None
+    if sec_org and proj and sec_org != proj["org_id"]:
+        _audit(conn, name, agent["id"], current_task_id, "denied", "org_mismatch")
+        conn.commit()
+        raise HTTPException(403, detail={"error": {"code": "org_mismatch"}})
 
     # Scope check
     scope = secret["scope"] or "global"

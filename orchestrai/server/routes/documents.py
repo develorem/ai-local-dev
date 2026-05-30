@@ -2,10 +2,11 @@
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
+from server.services import access
 from server.services.doc_index import extract_headings, enqueue_reindex_if_needed
 from server.util import new_id, utcnow_iso
 
@@ -24,7 +25,8 @@ def _row(r) -> dict:
 
 
 @router.get("")
-def list_documents(project_id: str, conn=Depends(db_dep)):
+def list_documents(project_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_project(request, conn, project_id)
     rows = conn.execute(
         "SELECT * FROM project_documents WHERE project_id = ? ORDER BY updated_at DESC",
         (project_id,)).fetchall()
@@ -32,11 +34,12 @@ def list_documents(project_id: str, conn=Depends(db_dep)):
 
 
 @router.post("", status_code=201)
-def create_document(body: dict, conn=Depends(db_dep)):
+def create_document(body: dict, request: Request, conn=Depends(db_dep)):
     pid = (body or {}).get("project_id")
     title = (body or {}).get("title", "").strip()
     if not pid or not conn.execute("SELECT 1 FROM projects WHERE id = ?", (pid,)).fetchone():
         raise HTTPException(404, detail={"error": {"code": "project_not_found"}})
+    access.assert_project(request, conn, pid)
     if not title:
         raise HTTPException(400, detail={"error": {"code": "title_required"}})
     did = new_id()
@@ -56,7 +59,8 @@ def create_document(body: dict, conn=Depends(db_dep)):
 
 
 @router.get("/{document_id}")
-def get_document(document_id: str, conn=Depends(db_dep)):
+def get_document(document_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_document(request, conn, document_id)
     r = conn.execute("SELECT * FROM project_documents WHERE id = ?", (document_id,)).fetchone()
     if not r:
         raise HTTPException(404)
@@ -64,7 +68,8 @@ def get_document(document_id: str, conn=Depends(db_dep)):
 
 
 @router.patch("/{document_id}")
-def update_document(document_id: str, body: dict, conn=Depends(db_dep)):
+def update_document(document_id: str, body: dict, request: Request, conn=Depends(db_dep)):
+    access.assert_document(request, conn, document_id)
     r = conn.execute("SELECT * FROM project_documents WHERE id = ?", (document_id,)).fetchone()
     if not r:
         raise HTTPException(404)
@@ -89,7 +94,8 @@ def update_document(document_id: str, body: dict, conn=Depends(db_dep)):
 
 
 @router.delete("/{document_id}")
-def delete_document(document_id: str, conn=Depends(db_dep)):
+def delete_document(document_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_document(request, conn, document_id)
     r = conn.execute("SELECT * FROM project_documents WHERE id = ?", (document_id,)).fetchone()
     if not r:
         raise HTTPException(404)

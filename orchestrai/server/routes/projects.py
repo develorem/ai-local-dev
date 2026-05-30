@@ -272,9 +272,8 @@ def archive_project(project_id: str, request: Request, conn=Depends(db_dep)):
 # ---- Per-project agent access (which agents may pick up this project's tasks) ----
 
 @router.get("/{project_id}/agents")
-def list_project_agents(project_id: str, conn=Depends(db_dep)):
-    if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
-        raise HTTPException(404)
+def list_project_agents(project_id: str, request: Request, conn=Depends(db_dep)):
+    _require_project_access(conn, request, project_id)
     out = []
     for r in conn.execute(
         "SELECT grantee_type, grantee, role, created_at FROM project_agents "
@@ -296,9 +295,8 @@ _ROLES = ("any", "plan", "implement", "review")
 
 
 @router.post("/{project_id}/agents", status_code=201)
-def grant_project_agent(project_id: str, body: dict, conn=Depends(db_dep)):
-    if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
-        raise HTTPException(404)
+def grant_project_agent(project_id: str, body: dict, request: Request, conn=Depends(db_dep)):
+    _require_project_access(conn, request, project_id)
     gtype = (body or {}).get("grantee_type")
     grantee = (body or {}).get("grantee")
     role = (body or {}).get("role", "any")
@@ -327,7 +325,8 @@ def grant_project_agent(project_id: str, body: dict, conn=Depends(db_dep)):
 
 
 @router.delete("/{project_id}/agents")
-def revoke_project_agent(project_id: str, body: dict, conn=Depends(db_dep)):
+def revoke_project_agent(project_id: str, body: dict, request: Request, conn=Depends(db_dep)):
+    _require_project_access(conn, request, project_id)
     gtype = (body or {}).get("grantee_type")
     grantee = (body or {}).get("grantee")
     conn.execute("DELETE FROM project_agents WHERE project_id = ? AND grantee_type = ? "

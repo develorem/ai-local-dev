@@ -2,11 +2,12 @@
 `outcome_id` (tasks/plans/discussions/events). See migrations 007 + 009.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import Outcome, OutcomeCreate, OutcomeUpdate
+from server.services import access
 from server.util import new_id, utcnow_iso, json_dumps
 
 router = APIRouter(prefix="/outcomes", tags=["outcomes"])
@@ -22,10 +23,11 @@ def _row_to_outcome(row) -> dict:
 
 
 @router.post("", status_code=201)
-def create_outcome(body: OutcomeCreate, conn=Depends(db_dep)):
+def create_outcome(body: OutcomeCreate, request: Request, conn=Depends(db_dep)):
     proj = conn.execute("SELECT id FROM projects WHERE id = ?", (body.project_id,)).fetchone()
     if not proj:
         raise HTTPException(404, detail={"error": {"code": "project_not_found"}})
+    access.assert_project(request, conn, body.project_id)
 
     gid = new_id()
     now = utcnow_iso()
@@ -64,12 +66,17 @@ def create_outcome(body: OutcomeCreate, conn=Depends(db_dep)):
 
 
 @router.get("")
-def list_outcomes(project_id: str | None = None, status: str | None = None,
+def list_outcomes(request: Request, project_id: str | None = None, status: str | None = None,
                   limit: int = 50, conn=Depends(db_dep)):
     limit = max(1, min(limit, 500))
     where, params = [], []
     if project_id:
+        access.assert_project(request, conn, project_id)
         where.append("project_id = ?"); params.append(project_id)
+    else:
+        frag, fparams = access.project_filter(request, conn, "project_id")
+        if frag:
+            where.append(frag); params.extend(fparams)
     if status:
         where.append("status = ?"); params.append(status)
     q = "SELECT * FROM outcomes"
@@ -82,7 +89,8 @@ def list_outcomes(project_id: str | None = None, status: str | None = None,
 
 
 @router.get("/{outcome_id}")
-def get_outcome(outcome_id: str, conn=Depends(db_dep)):
+def get_outcome(outcome_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_outcome(request, conn, outcome_id)
     row = conn.execute("SELECT * FROM outcomes WHERE id = ?", (outcome_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -103,7 +111,8 @@ def get_outcome(outcome_id: str, conn=Depends(db_dep)):
 
 
 @router.patch("/{outcome_id}")
-def update_outcome(outcome_id: str, body: OutcomeUpdate, conn=Depends(db_dep)):
+def update_outcome(outcome_id: str, body: OutcomeUpdate, request: Request, conn=Depends(db_dep)):
+    access.assert_outcome(request, conn, outcome_id)
     row = conn.execute("SELECT * FROM outcomes WHERE id = ?", (outcome_id,)).fetchone()
     if not row:
         raise HTTPException(404)
@@ -125,7 +134,8 @@ def update_outcome(outcome_id: str, body: OutcomeUpdate, conn=Depends(db_dep)):
 
 
 @router.post("/{outcome_id}/abandon")
-def abandon_outcome(outcome_id: str, conn=Depends(db_dep)):
+def abandon_outcome(outcome_id: str, request: Request, conn=Depends(db_dep)):
+    access.assert_outcome(request, conn, outcome_id)
     row = conn.execute("SELECT * FROM outcomes WHERE id = ?", (outcome_id,)).fetchone()
     if not row:
         raise HTTPException(404)
