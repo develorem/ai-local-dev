@@ -45,13 +45,18 @@ async def _tick() -> None:
                  task_id=r["id"], agent_id=r["assigned_agent_id"],
                  actor="system", detail={})
 
-        # 2. Mark stale agents lost
+        # 2. Mark stale agents lost. last_heartbeat_at is stored via utcnow_iso()
+        # ('YYYY-MM-DDTHH:MM:SS+00:00'), so it MUST be normalised with datetime()
+        # before comparing to datetime('now', ...). A raw string compare is wrong:
+        # the 'T' separator (0x54) sorts after the space (0x20) that datetime()
+        # uses, so a same-day stale heartbeat looks "newer" and is never marked
+        # lost (only agents from a previous date ever flipped).
         stale = conn.execute(
             f"""
             SELECT id FROM agents
             WHERE status IN ('connected','idle','busy')
               AND (last_heartbeat_at IS NULL OR
-                   last_heartbeat_at < datetime('now', '-{config.AGENT_LEASE_TIMEOUT_SEC} seconds'))
+                   datetime(last_heartbeat_at) < datetime('now', '-{config.AGENT_LEASE_TIMEOUT_SEC} seconds'))
             """
         ).fetchall()
         for r in stale:
@@ -62,6 +67,25 @@ async def _tick() -> None:
             emit(conn, "agent.lost", "agent", r["id"],
                  agent_id=r["id"], actor="system",
                  detail={"reason": "heartbeat_timeout"})
+
+        # 3. Prune long-dead agents so registrations don't accumulate forever.
+        # Each agent boot registers a NEW row; lost/released rows would otherwise
+        # build up indefinitely. Delete terminal agents whose last heartbeat is
+        # older than the retention window, plus their agent-specific access grants
+        # (grantee is plain TEXT, no FK). FK ON => events.agent_id and
+        # tasks.assigned_agent_id are SET NULL automatically.
+        dead = conn.execute(
+            f"""
+            SELECT id FROM agents
+            WHERE status IN ('lost', 'released')
+              AND (last_heartbeat_at IS NULL OR
+                   datetime(last_heartbeat_at) < datetime('now', '-{config.AGENT_RETENTION_SEC} seconds'))
+            """
+        ).fetchall()
+        for r in dead:
+            conn.execute("DELETE FROM project_agents WHERE grantee_type = 'agent' "
+                         "AND grantee = ?", (r["id"],))
+            conn.execute("DELETE FROM agents WHERE id = ?", (r["id"],))
 
         conn.commit()
 
