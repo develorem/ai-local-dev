@@ -119,7 +119,7 @@ TaskStatus = Literal["created", "ready", "in_progress",
 
 class TaskCreate(_Base):
     project_id: str
-    goal_id: Optional[str] = None
+    outcome_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     repo_id: Optional[str] = None
     branch_name: Optional[str] = None
@@ -154,7 +154,7 @@ class TaskStatusUpdate(_Base):
 class Task(_Base):
     id: str
     project_id: str
-    goal_id: Optional[str] = None
+    outcome_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     repo_id: Optional[str] = None
     branch_name: Optional[str] = None
@@ -249,7 +249,7 @@ class Event(_Base):
     entity_type: str
     entity_id: str
     project_id: Optional[str] = None
-    goal_id: Optional[str] = None
+    outcome_id: Optional[str] = None
     task_id: Optional[str] = None
     agent_id: Optional[str] = None
     actor: str

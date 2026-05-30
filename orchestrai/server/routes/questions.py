@@ -42,7 +42,7 @@ def list_questions(status: str = "pending", limit: int = 100, conn=Depends(db_de
                g.title AS goal_title
         FROM questions q
         LEFT JOIN tasks t ON t.id = q.task_id
-        LEFT JOIN outcomes g ON g.id = t.goal_id
+        LEFT JOIN outcomes g ON g.id = t.outcome_id
         WHERE q.status = ?
         ORDER BY q.created_at ASC LIMIT ?
         """,
@@ -87,7 +87,7 @@ def answer_question(question_id: str, body: AnswerQuestion, conn=Depends(db_dep)
 
     emit(conn, "question.answered", "question", question_id,
          project_id=task_row["project_id"] if task_row else None,
-         goal_id=task_row["goal_id"] if task_row else None,
+         outcome_id=task_row["outcome_id"] if task_row else None,
          task_id=row["task_id"], actor="user",
          detail={"kind": row["kind"], "answer_value": body.answer_value})
 
@@ -107,7 +107,7 @@ def answer_question(question_id: str, body: AnswerQuestion, conn=Depends(db_dep)
                     (row["task_id"],),
                 )
                 emit(conn, "task.status_changed", "task", row["task_id"],
-                     project_id=task_row["project_id"], goal_id=task_row["goal_id"],
+                     project_id=task_row["project_id"], outcome_id=task_row["outcome_id"],
                      task_id=row["task_id"], actor="system",
                      detail={"from": "blocked_on_human", "to": "ready"})
 
@@ -120,15 +120,15 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
 
     Caller commits.
     """
-    goal_id = task_row["goal_id"]
+    outcome_id = task_row["outcome_id"]
     project_id = task_row["project_id"]
     task_id = task_row["id"]
     now = utcnow_iso()
 
     plan_row = conn.execute(
-        "SELECT * FROM plans WHERE goal_id = ? AND status = 'draft' "
+        "SELECT * FROM plans WHERE outcome_id = ? AND status = 'draft' "
         "ORDER BY version DESC LIMIT 1",
-        (goal_id,),
+        (outcome_id,),
     ).fetchone()
     if not plan_row:
         return  # nothing to do; orphan approval
@@ -174,12 +174,12 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
             ordered.append(tid)
             conn.execute(
                 """
-                INSERT INTO tasks (id, project_id, goal_id, type, title, description_md,
+                INSERT INTO tasks (id, project_id, outcome_id, type, title, description_md,
                                    status, priority, depends_on, acceptance_criteria,
                                    payload, attempt_count, max_attempts, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'ready', ?, '[]', ?, ?, 0, 3, ?)
                 """,
-                (tid, project_id, goal_id, stub.get("type", "implement"),
+                (tid, project_id, outcome_id, stub.get("type", "implement"),
                  stub.get("title", "Untitled"),
                  stub.get("description_md", ""),
                  stub.get("priority", "normal"),
@@ -188,7 +188,7 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
                  now),
             )
             emit(conn, "task.created", "task", tid,
-                 project_id=project_id, goal_id=goal_id, task_id=tid, actor="system",
+                 project_id=project_id, outcome_id=outcome_id, task_id=tid, actor="system",
                  detail={"title": stub.get("title"), "type": stub.get("type", "implement"),
                          "from_plan": plan_row["id"]})
 
@@ -220,7 +220,7 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
         )
         conn.execute(
             "UPDATE outcomes SET status='active', updated_at=? WHERE id = ?",
-            (now, goal_id),
+            (now, outcome_id),
         )
         conn.execute(
             "UPDATE tasks SET status='done', finished_at=?, "
@@ -237,13 +237,13 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
             )
 
         emit(conn, "plan.approved", "plan", plan_row["id"],
-             project_id=project_id, goal_id=goal_id, task_id=task_id, actor="user",
+             project_id=project_id, outcome_id=outcome_id, task_id=task_id, actor="user",
              detail={"tasks_instantiated": len(ordered)})
-        emit(conn, "goal.status_changed", "goal", goal_id,
-             project_id=project_id, goal_id=goal_id, actor="system",
+        emit(conn, "goal.status_changed", "goal", outcome_id,
+             project_id=project_id, outcome_id=outcome_id, actor="system",
              detail={"to": "active"})
         emit(conn, "task.status_changed", "task", task_id,
-             project_id=project_id, goal_id=goal_id, task_id=task_id, actor="system",
+             project_id=project_id, outcome_id=outcome_id, task_id=task_id, actor="system",
              detail={"from": "blocked_on_human", "to": "done"})
 
     elif answer_value == "reject":
@@ -253,7 +253,7 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
         )
         conn.execute(
             "UPDATE outcomes SET status='rejected', updated_at=? WHERE id = ?",
-            (now, goal_id),
+            (now, outcome_id),
         )
         conn.execute(
             "UPDATE tasks SET status='cancelled', finished_at=?, "
@@ -261,7 +261,7 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
             (now, task_id),
         )
         emit(conn, "plan.rejected", "plan", plan_row["id"],
-             project_id=project_id, goal_id=goal_id, task_id=task_id, actor="user",
+             project_id=project_id, outcome_id=outcome_id, task_id=task_id, actor="user",
              detail={"reason": answer_md})
 
     elif answer_value == "approve_with_edits":
@@ -269,12 +269,12 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
         rtid = new_id()
         conn.execute(
             """
-            INSERT INTO tasks (id, project_id, goal_id, type, title, description_md,
+            INSERT INTO tasks (id, project_id, outcome_id, type, title, description_md,
                                status, priority, depends_on, acceptance_criteria,
                                payload, attempt_count, max_attempts, created_at)
             VALUES (?, ?, ?, 'revise', ?, ?, 'ready', 'normal', '[]', '[]', ?, 0, 3, ?)
             """,
-            (rtid, project_id, goal_id,
+            (rtid, project_id, outcome_id,
              f"Revise plan v{plan_row['version']}",
              answer_md or "Revise the plan per user feedback.",
              json_dumps({"plan_id": plan_row["id"], "edit_request": answer_md or ""}),
@@ -286,21 +286,21 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
             (now, task_id),
         )
         emit(conn, "task.created", "task", rtid,
-             project_id=project_id, goal_id=goal_id, task_id=rtid, actor="user",
+             project_id=project_id, outcome_id=outcome_id, task_id=rtid, actor="user",
              detail={"title": "Revise plan", "type": "revise"})
 
     elif answer_value == "discuss":
         did = new_id()
         conn.execute(
             """
-            INSERT INTO discussions (id, project_id, goal_id, title, status, created_at)
+            INSERT INTO discussions (id, project_id, outcome_id, title, status, created_at)
             VALUES (?, ?, ?, ?, 'open', ?)
             """,
-            (did, project_id, goal_id,
+            (did, project_id, outcome_id,
              f"Discuss plan v{plan_row['version']}",
              now),
         )
         # Leave the planner task blocked_on_human; user uses the discussion to evolve the plan
         emit(conn, "discussion.created", "discussion", did,
-             project_id=project_id, goal_id=goal_id, actor="user",
+             project_id=project_id, outcome_id=outcome_id, actor="user",
              detail={"title": f"Discuss plan v{plan_row['version']}"})

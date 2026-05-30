@@ -72,7 +72,7 @@ async def handle_revise(hub: HubClient, ollama: OllamaClient, envelope: dict) ->
     # Fetch the existing plan and goal
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(f"{hub.base}/api/outcomes/{task.get('goal_id') or ''}",
+            r = await client.get(f"{hub.base}/api/outcomes/{task.get('outcome_id') or ''}",
                                  headers={"Authorization": f"Bearer {hub.lease_token}"})
             r.raise_for_status()
             goal_data = r.json()

@@ -1000,7 +1000,7 @@ route('/tasks/:task_id', async ({ task_id }) => {
     ['Status', pill(t.status)],
     ['Priority', t.priority],
     ['Project', t.project_id],
-    ['Outcome', t.goal_id || '—'],
+    ['Outcome', t.outcome_id || '—'],
     ['Repo', t.repo_id || '—'],
     ['Branch', t.branch_name || '—'],
     ['Agent', data.agent ? el('a', { href: `#/agents/${data.agent.id}` }, data.agent.name) : '—'],

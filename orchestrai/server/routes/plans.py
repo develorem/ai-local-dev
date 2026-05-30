@@ -11,7 +11,7 @@ router = APIRouter(prefix="/plans", tags=["plans"])
 def _row_to_plan(row) -> dict:
     return {
         "id": row["id"],
-        "goal_id": row["goal_id"],
+        "outcome_id": row["outcome_id"],
         "version": row["version"],
         "content_md": row["content_md"],
         "task_outline": json_loads(row["task_outline"], []),

@@ -23,7 +23,7 @@ def emit(
     entity_id: str,
     *,
     project_id: Optional[str] = None,
-    goal_id: Optional[str] = None,
+    outcome_id: Optional[str] = None,
     task_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     actor: str = "system",
@@ -34,11 +34,11 @@ def emit(
     conn.execute(
         """
         INSERT INTO events (id, ts, kind, entity_type, entity_id,
-                            project_id, goal_id, task_id, agent_id, actor, detail)
+                            project_id, outcome_id, task_id, agent_id, actor, detail)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (event_id, ts, kind, entity_type, entity_id,
-         project_id, goal_id, task_id, agent_id, actor, json_dumps(detail or {})),
+         project_id, outcome_id, task_id, agent_id, actor, json_dumps(detail or {})),
     )
 
     # Schedule async broadcast — don't block the request thread.
@@ -47,7 +47,7 @@ def emit(
         "event": {
             "id": event_id, "ts": ts, "kind": kind,
             "entity_type": entity_type, "entity_id": entity_id,
-            "project_id": project_id, "goal_id": goal_id,
+            "project_id": project_id, "outcome_id": outcome_id,
             "task_id": task_id, "agent_id": agent_id,
             "actor": actor, "detail": detail or {},
         },
@@ -70,7 +70,7 @@ def event_row_to_dict(row: sqlite3.Row) -> dict:
         "entity_type": row["entity_type"],
         "entity_id": row["entity_id"],
         "project_id": row["project_id"],
-        "goal_id": row["goal_id"],
+        "outcome_id": row["outcome_id"],
         "task_id": row["task_id"],
         "agent_id": row["agent_id"],
         "actor": row["actor"],

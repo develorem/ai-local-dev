@@ -17,7 +17,7 @@ def _row_to_discussion(row) -> dict:
     return {
         "id": row["id"],
         "project_id": row["project_id"],
-        "goal_id": row["goal_id"],
+        "outcome_id": row["outcome_id"],
         "task_id": row["task_id"],
         "title": row["title"],
         "status": row["status"],
@@ -59,20 +59,20 @@ def create_discussion(body: dict, conn=Depends(db_dep)):
     body = body or {}
     title = (body.get("title") or "").strip()
     project_id = body.get("project_id")
-    goal_id = body.get("goal_id")
+    outcome_id = body.get("outcome_id")
     task_id = body.get("task_id")
     initial_msg = body.get("initial_message_md")
 
     if not title:
         raise HTTPException(400, detail={"error": {"code": "title_required"}})
 
-    # Resolve project_id if only goal_id or task_id was given
+    # Resolve project_id if only outcome_id or task_id was given
     if not project_id and task_id:
         tr = conn.execute("SELECT project_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if tr:
             project_id = tr["project_id"]
-    if not project_id and goal_id:
-        gr = conn.execute("SELECT project_id FROM outcomes WHERE id = ?", (goal_id,)).fetchone()
+    if not project_id and outcome_id:
+        gr = conn.execute("SELECT project_id FROM outcomes WHERE id = ?", (outcome_id,)).fetchone()
         if gr:
             project_id = gr["project_id"]
 
@@ -80,18 +80,18 @@ def create_discussion(body: dict, conn=Depends(db_dep)):
     now = utcnow_iso()
     conn.execute(
         """
-        INSERT INTO discussions (id, project_id, goal_id, task_id, title, status, created_at)
+        INSERT INTO discussions (id, project_id, outcome_id, task_id, title, status, created_at)
         VALUES (?, ?, ?, ?, ?, 'open', ?)
         """,
-        (did, project_id, goal_id, task_id, title, now),
+        (did, project_id, outcome_id, task_id, title, now),
     )
     emit(conn, "discussion.created", "discussion", did,
-         project_id=project_id, goal_id=goal_id, task_id=task_id, actor="user",
+         project_id=project_id, outcome_id=outcome_id, task_id=task_id, actor="user",
          detail={"title": title})
 
     if initial_msg:
         _post_message(conn, did, "user", initial_msg)
-        _enqueue_discuss_task(conn, did, project_id, goal_id, task_id, title)
+        _enqueue_discuss_task(conn, did, project_id, outcome_id, task_id, title)
 
     conn.commit()
     row = conn.execute("SELECT * FROM discussions WHERE id = ?", (did,)).fetchone()
@@ -147,7 +147,7 @@ def close_discussion(discussion_id: str, conn=Depends(db_dep)):
         (now, discussion_id),
     )
     emit(conn, "discussion.closed", "discussion", discussion_id,
-         project_id=row["project_id"], goal_id=row["goal_id"], task_id=row["task_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"], task_id=row["task_id"],
          actor="user", detail={})
     conn.commit()
     return {"ok": True}
@@ -179,7 +179,7 @@ def post_user_message(discussion_id: str, body: dict, conn=Depends(db_dep)):
         (f'%"discussion_id": "{discussion_id}"%',),
     ).fetchone()
     if not existing:
-        _enqueue_discuss_task(conn, discussion_id, row["project_id"], row["goal_id"],
+        _enqueue_discuss_task(conn, discussion_id, row["project_id"], row["outcome_id"],
                               row["task_id"], row["title"])
 
     conn.commit()
@@ -221,7 +221,7 @@ def post_agent_message(discussion_id: str, body: dict, conn=Depends(db_dep)):
              utcnow_iso()),
         )
         emit(conn, "proposed_action.added", "proposed_action", aid,
-             project_id=row["project_id"], goal_id=row["goal_id"], task_id=row["task_id"],
+             project_id=row["project_id"], outcome_id=row["outcome_id"], task_id=row["task_id"],
              actor="agent",
              detail={"action_type": a.get("action_type"),
                      "human_summary": a.get("human_summary")})
@@ -262,12 +262,12 @@ def apply_action(action_id: str, conn=Depends(db_dep)):
             tid = new_id()
             conn.execute(
                 """
-                INSERT INTO tasks (id, project_id, goal_id, type, title, description_md,
+                INSERT INTO tasks (id, project_id, outcome_id, type, title, description_md,
                                    status, priority, depends_on, acceptance_criteria,
                                    payload, attempt_count, max_attempts, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'ready', ?, '[]', ?, ?, 0, 3, ?)
                 """,
-                (tid, disc["project_id"], payload.get("goal_id") or disc["goal_id"],
+                (tid, disc["project_id"], payload.get("outcome_id") or disc["outcome_id"],
                  payload.get("type", "implement"),
                  payload.get("title", "Untitled"),
                  payload.get("description_md", ""),
@@ -277,7 +277,7 @@ def apply_action(action_id: str, conn=Depends(db_dep)):
                  now),
             )
             emit(conn, "task.created", "task", tid,
-                 project_id=disc["project_id"], goal_id=disc["goal_id"], task_id=tid,
+                 project_id=disc["project_id"], outcome_id=disc["outcome_id"], task_id=tid,
                  actor="user", detail={"from_proposed_action": action_id,
                                        "title": payload.get("title")})
             side_effects.append({"kind": "task.created", "id": tid})
@@ -298,7 +298,7 @@ def apply_action(action_id: str, conn=Depends(db_dep)):
                 params.append(task_id)
                 conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
                 emit(conn, "task.updated", "task", task_id,
-                     project_id=disc["project_id"], goal_id=disc["goal_id"], task_id=task_id,
+                     project_id=disc["project_id"], outcome_id=disc["outcome_id"], task_id=task_id,
                      actor="user", detail={"from_proposed_action": action_id,
                                            "changed": list(changes.keys())})
                 side_effects.append({"kind": "task.modified", "id": task_id})
@@ -313,7 +313,7 @@ def apply_action(action_id: str, conn=Depends(db_dep)):
                 (now, task_id),
             )
             emit(conn, "task.cancelled", "task", task_id,
-                 project_id=disc["project_id"], goal_id=disc["goal_id"], task_id=task_id,
+                 project_id=disc["project_id"], outcome_id=disc["outcome_id"], task_id=task_id,
                  actor="user", detail={"from_proposed_action": action_id})
             side_effects.append({"kind": "task.cancelled", "id": task_id})
 
@@ -333,7 +333,7 @@ def apply_action(action_id: str, conn=Depends(db_dep)):
         (now, action_id),
     )
     emit(conn, "proposed_action.applied", "proposed_action", action_id,
-         project_id=disc["project_id"], goal_id=disc["goal_id"],
+         project_id=disc["project_id"], outcome_id=disc["outcome_id"],
          actor="user", detail={"side_effects": side_effects})
     conn.commit()
     return {"ok": True, "applied_at": now, "side_effects": side_effects}
@@ -370,11 +370,11 @@ def _post_message(conn, discussion_id: str, role: str, content_md: str) -> str:
         """,
         (mid, discussion_id, role, content_md, now),
     )
-    disc = conn.execute("SELECT project_id, goal_id, task_id FROM discussions WHERE id = ?",
+    disc = conn.execute("SELECT project_id, outcome_id, task_id FROM discussions WHERE id = ?",
                         (discussion_id,)).fetchone()
     emit(conn, "discussion.message", "discussion", discussion_id,
          project_id=disc["project_id"] if disc else None,
-         goal_id=disc["goal_id"] if disc else None,
+         outcome_id=disc["outcome_id"] if disc else None,
          task_id=disc["task_id"] if disc else None,
          actor=role,
          detail={"role": role, "chars": len(content_md)})
@@ -382,24 +382,24 @@ def _post_message(conn, discussion_id: str, role: str, content_md: str) -> str:
 
 
 def _enqueue_discuss_task(conn, discussion_id: str, project_id: Optional[str],
-                          goal_id: Optional[str], task_id: Optional[str],
+                          outcome_id: Optional[str], task_id: Optional[str],
                           discussion_title: str) -> str:
     tid = new_id()
     now = utcnow_iso()
     conn.execute(
         """
-        INSERT INTO tasks (id, project_id, goal_id, type, title, description_md,
+        INSERT INTO tasks (id, project_id, outcome_id, type, title, description_md,
                            status, priority, depends_on, acceptance_criteria,
                            payload, attempt_count, max_attempts, created_at)
         VALUES (?, ?, ?, 'discuss', ?, ?, 'ready', 'critical', '[]', '[]', ?, 0, 3, ?)
         """,
-        (tid, project_id or "", goal_id,
+        (tid, project_id or "", outcome_id,
          f"Discuss: {discussion_title}",
          f"Respond to the latest message in discussion {discussion_id}.",
          json_dumps({"discussion_id": discussion_id, "linked_task_id": task_id}),
          now),
     )
     emit(conn, "task.created", "task", tid,
-         project_id=project_id, goal_id=goal_id, task_id=tid, actor="user",
+         project_id=project_id, outcome_id=outcome_id, task_id=tid, actor="user",
          detail={"type": "discuss", "discussion_id": discussion_id})
     return tid

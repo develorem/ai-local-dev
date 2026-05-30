@@ -79,8 +79,8 @@ async def handle_discuss(hub: HubClient, ollama: OllamaClient, envelope: dict) -
     linked = "(general)"
     if discussion.get("task_id"):
         linked = f"task {discussion['task_id']}"
-    elif discussion.get("goal_id"):
-        linked = f"goal {discussion['goal_id']}"
+    elif discussion.get("outcome_id"):
+        linked = f"goal {discussion['outcome_id']}"
 
     prompt = _render(project, discussion, messages, linked)
 

@@ -21,7 +21,7 @@ async def _tick() -> None:
         # 1. Reclaim expired-lease tasks
         rows = conn.execute(
             """
-            SELECT id, project_id, goal_id, assigned_agent_id
+            SELECT id, project_id, outcome_id, assigned_agent_id
             FROM tasks
             WHERE status = 'in_progress'
               AND lease_expires_at IS NOT NULL
@@ -41,7 +41,7 @@ async def _tick() -> None:
                 (f"[reaper] reclaimed: lease expired", r["id"]),
             )
             emit(conn, "task.lease_expired_reclaimed", "task", r["id"],
-                 project_id=r["project_id"], goal_id=r["goal_id"],
+                 project_id=r["project_id"], outcome_id=r["outcome_id"],
                  task_id=r["id"], agent_id=r["assigned_agent_id"],
                  actor="system", detail={})
 

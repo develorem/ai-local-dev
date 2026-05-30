@@ -105,9 +105,9 @@ class HubClient:
         r.raise_for_status()
         return r.json()
 
-    async def get_goal(self, goal_id: str) -> dict:
+    async def get_goal(self, outcome_id: str) -> dict:
         r = await self._client.get(
-            f"{self.base}/api/outcomes/{goal_id}",
+            f"{self.base}/api/outcomes/{outcome_id}",
             headers=self._headers(),
         )
         r.raise_for_status()

@@ -178,11 +178,11 @@ async def handle_plan(hub: HubClient, ollama: OllamaClient, envelope: dict) -> N
     task_id = task["id"]
 
     # Fetch the goal — the task envelope doesn't include it directly
-    goal_id = task.get("goal_id")
+    outcome_id = task.get("outcome_id")
     goal: dict = {"title": task["title"], "description_md": task["description_md"]}
-    if goal_id:
+    if outcome_id:
         try:
-            data = await hub.get_goal(goal_id)
+            data = await hub.get_goal(outcome_id)
             goal = data["outcome"]
         except Exception as e:
             await hub.task_event(task_id, "task.warning",

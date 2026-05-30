@@ -16,7 +16,7 @@ def row_to_task(row) -> dict:
     return {
         "id": row["id"],
         "project_id": row["project_id"],
-        "goal_id": row["goal_id"],
+        "outcome_id": row["outcome_id"],
         "parent_task_id": row["parent_task_id"],
         "repo_id": row["repo_id"],
         "branch_name": row["branch_name"],
@@ -50,13 +50,13 @@ def create_task(body: TaskCreate, conn=Depends(db_dep)):
     now = utcnow_iso()
     conn.execute(
         """
-        INSERT INTO tasks (id, project_id, goal_id, parent_task_id, repo_id, branch_name,
+        INSERT INTO tasks (id, project_id, outcome_id, parent_task_id, repo_id, branch_name,
                            type, title, description_md, status, priority,
                            depends_on, acceptance_criteria, payload,
                            attempt_count, max_attempts, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
         """,
-        (tid, body.project_id, body.goal_id, body.parent_task_id,
+        (tid, body.project_id, body.outcome_id, body.parent_task_id,
          body.repo_id, body.branch_name, body.type, body.title, body.description_md,
          body.status, body.priority,
          json_dumps(body.depends_on),
@@ -65,7 +65,7 @@ def create_task(body: TaskCreate, conn=Depends(db_dep)):
          body.max_attempts, now),
     )
     emit(conn, "task.created", "task", tid,
-         project_id=body.project_id, goal_id=body.goal_id, task_id=tid, actor="user",
+         project_id=body.project_id, outcome_id=body.outcome_id, task_id=tid, actor="user",
          detail={"title": body.title, "type": body.type, "status": body.status})
     conn.commit()
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
@@ -75,7 +75,7 @@ def create_task(body: TaskCreate, conn=Depends(db_dep)):
 @router.get("")
 def list_tasks(
     project_id: Optional[str] = None,
-    goal_id: Optional[str] = None,
+    outcome_id: Optional[str] = None,
     repo_id: Optional[str] = None,
     branch_name: Optional[str] = None,
     status: Optional[str] = None,
@@ -86,7 +86,7 @@ def list_tasks(
 ):
     limit = max(1, min(limit, 500))
     where, params = [], []
-    for col, val in (("project_id", project_id), ("goal_id", goal_id),
+    for col, val in (("project_id", project_id), ("outcome_id", outcome_id),
                      ("repo_id", repo_id), ("branch_name", branch_name),
                      ("assigned_agent_id", assigned_agent_id)):
         if val is not None:
@@ -152,15 +152,15 @@ def get_task(task_id: str, conn=Depends(db_dep)):
     # For plan / revise tasks, include the plans for this goal so the UI can
     # render the actual plan content alongside a plan_approval question.
     plans = []
-    if row["type"] in ("plan", "revise") and row["goal_id"]:
+    if row["type"] in ("plan", "revise") and row["outcome_id"]:
         plan_rows = conn.execute(
             """
             SELECT id, version, status, content_md, task_outline,
                    created_at, approval_question_id
-            FROM plans WHERE goal_id = ?
+            FROM plans WHERE outcome_id = ?
             ORDER BY version DESC LIMIT 10
             """,
-            (row["goal_id"],),
+            (row["outcome_id"],),
         ).fetchall()
         for p in plan_rows:
             plans.append({
@@ -204,7 +204,7 @@ def update_task(task_id: str, body: TaskUpdate, conn=Depends(db_dep)):
     params.append(task_id)
     conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", params)
     emit(conn, "task.updated", "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=task_id, actor="user", detail={"changed": changed})
     conn.commit()
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -244,7 +244,7 @@ def cancel_task(task_id: str, conn=Depends(db_dep)):
         (task_id,),
     )
     emit(conn, "task.cancelled", "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=task_id, actor="user",
          detail={"cascaded_children": cascaded})
     conn.commit()
@@ -275,7 +275,7 @@ def retry_task(task_id: str, conn=Depends(db_dep)):
         (task_id,),
     )
     emit(conn, "task.retried", "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=task_id, actor="user", detail={})
     conn.commit()
     return {"ok": True}
@@ -297,7 +297,7 @@ def append_note(task_id: str, body: dict, conn=Depends(db_dep)):
         (stamped, stamped, task_id),
     )
     emit(conn, "task.notes_appended", "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=task_id, actor="user", detail={"note": note})
     conn.commit()
     return {"ok": True}
@@ -335,13 +335,13 @@ def set_task_status(task_id: str, body: TaskStatusUpdate, conn=Depends(db_dep)):
             (stamped, stamped, task_id),
         )
     emit(conn, "task.status_changed", "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"], task_id=task_id,
+         project_id=row["project_id"], outcome_id=row["outcome_id"], task_id=task_id,
          actor="user", detail={"from": row["status"], "to": new_status})
 
     if new_status == "done":
         _cascade_dep_unblock(conn, task_id)
-    if new_status in ("done", "cancelled") and row["goal_id"]:
-        _maybe_complete_goal(conn, row["goal_id"])
+    if new_status in ("done", "cancelled") and row["outcome_id"]:
+        _maybe_complete_goal(conn, row["outcome_id"])
     conn.commit()
     return {"ok": True, "status": new_status}
 
@@ -355,7 +355,7 @@ def post_task_event(task_id: str, body: dict, conn=Depends(db_dep)):
     kind = (body or {}).get("kind", "task.progress")
     detail = (body or {}).get("detail", {})
     emit(conn, kind, "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=task_id, agent_id=row["assigned_agent_id"],
          actor=f"agent:{row['assigned_agent_id']}" if row["assigned_agent_id"] else "system",
          detail=detail)
@@ -430,32 +430,32 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
         else:
             # Find next plan version. Supersede any prior draft.
             prev = conn.execute(
-                "SELECT MAX(version) AS v FROM plans WHERE goal_id = ?",
-                (row["goal_id"],),
+                "SELECT MAX(version) AS v FROM plans WHERE outcome_id = ?",
+                (row["outcome_id"],),
             ).fetchone()
             next_version = (prev["v"] or 0) + 1
             conn.execute(
-                "UPDATE plans SET status='superseded' WHERE goal_id = ? AND status='draft'",
-                (row["goal_id"],),
+                "UPDATE plans SET status='superseded' WHERE outcome_id = ? AND status='draft'",
+                (row["outcome_id"],),
             )
             plan_id = new_id()
             tools_required = result.get("tools_required") or {}
             conn.execute(
                 """
-                INSERT INTO plans (id, goal_id, version, content_md, task_outline,
+                INSERT INTO plans (id, outcome_id, version, content_md, task_outline,
                                    tools_required, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)
                 """,
-                (plan_id, row["goal_id"], next_version,
+                (plan_id, row["outcome_id"], next_version,
                  plan_md, json_dumps(task_outline),
                  json_dumps(tools_required), now),
             )
             # Move the goal to 'planning' if not already
-            if row["goal_id"]:
+            if row["outcome_id"]:
                 conn.execute(
                     "UPDATE outcomes SET status='planning', updated_at=? "
                     "WHERE id = ? AND status IN ('submitted','planning','active')",
-                    (now, row["goal_id"]),
+                    (now, row["outcome_id"]),
                 )
             # Approval question
             qid = _insert_question(
@@ -474,7 +474,7 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
                 (qid, plan_id),
             )
             emit(conn, "plan.created", "plan", plan_id,
-                 project_id=row["project_id"], goal_id=row["goal_id"],
+                 project_id=row["project_id"], outcome_id=row["outcome_id"],
                  task_id=task_id, agent_id=row["assigned_agent_id"],
                  actor=f"agent:{row['assigned_agent_id']}" if row['assigned_agent_id'] else 'system',
                  detail={"version": next_version, "task_count": len(task_outline)})
@@ -554,7 +554,7 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
             )
 
     emit(conn, "task.status_changed", "task", task_id,
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=task_id, agent_id=row["assigned_agent_id"],
          actor=f"agent:{row['assigned_agent_id']}" if row['assigned_agent_id'] else 'system',
          detail={"from": row["status"], "to": new_status, "outcome": outcome})
@@ -565,8 +565,8 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
         _cascade_dep_unblock(conn, task_id)
 
     # Goal completion: if all of a goal's tasks are terminal-success, mark goal done.
-    if new_status in ("done", "cancelled") and row["goal_id"]:
-        _maybe_complete_goal(conn, row["goal_id"])
+    if new_status in ("done", "cancelled") and row["outcome_id"]:
+        _maybe_complete_goal(conn, row["outcome_id"])
 
     conn.commit()
 
@@ -577,7 +577,7 @@ def _cascade_dep_unblock(conn, completed_task_id: str) -> None:
     """For every blocked_on_dep task that depends on `completed_task_id`, recheck deps."""
     rows = conn.execute(
         """
-        SELECT t.id, t.project_id, t.goal_id, t.depends_on
+        SELECT t.id, t.project_id, t.outcome_id, t.depends_on
         FROM tasks t
         WHERE t.status = 'blocked_on_dep'
           AND EXISTS (
@@ -601,18 +601,18 @@ def _cascade_dep_unblock(conn, completed_task_id: str) -> None:
                 (r["id"],),
             )
             emit(conn, "task.status_changed", "task", r["id"],
-                 project_id=r["project_id"], goal_id=r["goal_id"],
+                 project_id=r["project_id"], outcome_id=r["outcome_id"],
                  task_id=r["id"], actor="system",
                  detail={"from": "blocked_on_dep", "to": "ready",
                          "reason": "all deps satisfied"})
 
 
-def _maybe_complete_goal(conn, goal_id: str) -> None:
+def _maybe_complete_goal(conn, outcome_id: str) -> None:
     """If every task in the goal is in a terminal state and at least one is done,
     move the goal to `done`."""
     g = conn.execute(
         "SELECT id, project_id, status FROM outcomes WHERE id = ?",
-        (goal_id,),
+        (outcome_id,),
     ).fetchone()
     if not g or g["status"] in ("done", "abandoned", "rejected"):
         return
@@ -623,9 +623,9 @@ def _maybe_complete_goal(conn, goal_id: str) -> None:
           SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done_n,
           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_n,
           COUNT(*) AS total
-        FROM tasks WHERE goal_id = ?
+        FROM tasks WHERE outcome_id = ?
         """,
-        (goal_id,),
+        (outcome_id,),
     ).fetchone()
     if (counts["total"] or 0) == 0:
         return
@@ -634,10 +634,10 @@ def _maybe_complete_goal(conn, goal_id: str) -> None:
     if int(counts["terminal"] or 0) == int(counts["total"]) and int(counts["done_n"] or 0) > 0:
         conn.execute(
             "UPDATE outcomes SET status='done', updated_at=? WHERE id = ?",
-            (utcnow_iso(), goal_id),
+            (utcnow_iso(), outcome_id),
         )
-        emit(conn, "goal.status_changed", "goal", goal_id,
-             project_id=g["project_id"], goal_id=goal_id, actor="system",
+        emit(conn, "goal.status_changed", "goal", outcome_id,
+             project_id=g["project_id"], outcome_id=outcome_id, actor="system",
              detail={"to": "done", "reason": "all tasks complete"})
 
 
@@ -662,12 +662,12 @@ def _spawn_task_repair(conn, failed_row) -> str:
     now = utcnow_iso()
     conn.execute(
         """
-        INSERT INTO tasks (id, project_id, goal_id, type, title, description_md,
+        INSERT INTO tasks (id, project_id, outcome_id, type, title, description_md,
                            status, priority, depends_on, acceptance_criteria,
                            payload, attempt_count, max_attempts, created_at)
         VALUES (?, ?, ?, 'revise', ?, ?, 'ready', 'high', '[]', '[]', ?, 0, 2, ?)
         """,
-        (rtid, failed_row["project_id"], failed_row["goal_id"],
+        (rtid, failed_row["project_id"], failed_row["outcome_id"],
          f"Repair: {failed_row['title']}",
          (f"Auto-spawned because task `{failed_row['title']}` failed after "
           f"{failed_row['max_attempts']} attempts. Diagnose the failure and "
@@ -677,11 +677,11 @@ def _spawn_task_repair(conn, failed_row) -> str:
     )
     emit(conn, "task.created", "task", rtid,
          project_id=failed_row["project_id"],
-         goal_id=failed_row["goal_id"], task_id=rtid, actor="system",
+         outcome_id=failed_row["outcome_id"], task_id=rtid, actor="system",
          detail={"type": "revise", "mode": "task_repair",
                  "failed_task_id": failed_row["id"]})
     emit(conn, "task.repair_spawned", "task", failed_row["id"],
          project_id=failed_row["project_id"],
-         goal_id=failed_row["goal_id"], task_id=failed_row["id"], actor="system",
+         outcome_id=failed_row["outcome_id"], task_id=failed_row["id"], actor="system",
          detail={"repair_task_id": rtid})
     return rtid

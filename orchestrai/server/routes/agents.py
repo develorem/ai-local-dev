@@ -209,7 +209,7 @@ def claim(agent_id: str,
         repo = dict(repo_row) if repo_row else None
 
     emit(conn, "task.claimed", "task", row["id"],
-         project_id=row["project_id"], goal_id=row["goal_id"],
+         project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=row["id"], agent_id=agent_id, actor=f"agent:{agent_id}",
          detail={"branch": row["branch_name"]})
     conn.commit()
@@ -284,7 +284,7 @@ def get_agent(agent_id: str, conn=Depends(db_dep)):
     current_task = None
     if row["current_task_id"]:
         ct = conn.execute(
-            "SELECT id, title, type, status, branch_name, project_id, goal_id, "
+            "SELECT id, title, type, status, branch_name, project_id, outcome_id, "
             "       started_at, lease_expires_at "
             "FROM tasks WHERE id = ?",
             (row["current_task_id"],),
