@@ -12,6 +12,13 @@ PROJECT
   Context:
 {project_context_indented}
 
+PROJECT DOCUMENTS
+{project_documents_block}
+
+AVAILABLE SECRETS (names only — fetch a value at run time via the secret
+endpoint and declare it in the task; NEVER inline secret values)
+{available_secrets_block}
+
 TASK
   Title:        {task_title}
   Description:  {task_description}

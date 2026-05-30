@@ -14,6 +14,7 @@ from typing import Any
 from orchestrai_agent.config import config
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
+from orchestrai_agent.prompt_context import documents_block, secrets_block
 from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 
@@ -68,8 +69,11 @@ def sanitize_acceptance_criteria(criteria: list) -> list:
     return out
 
 
-def _render_prompt(project: dict, goal: dict) -> tuple[str, dict]:
+def _render_prompt(project: dict, goal: dict, documents: list | None = None,
+                   secret_names: list | None = None) -> tuple[str, dict]:
     """Render the planner prompt and return (prompt, section_sizes)."""
+    docs_block = documents_block(documents)
+    secrets_blk = secrets_block(secret_names)
     context = project.get("context_md") or "(no project context provided)"
     indented = "\n".join("    " + line for line in context.splitlines())
     if config.HTTP_PORTS:
@@ -106,6 +110,8 @@ def _render_prompt(project: dict, goal: dict) -> tuple[str, dict]:
         project_context_indented=indented,
         goal_title=goal.get("title", "(no title)"),
         goal_description=goal_description,
+        project_documents_block=docs_block,
+        available_secrets_block=secrets_blk,
         http_ports_block=http_ports_block,
         existing_tools_block=existing_tools_block,
     )
@@ -113,6 +119,8 @@ def _render_prompt(project: dict, goal: dict) -> tuple[str, dict]:
         "project_description": len(project_description),
         "project_context": len(indented),
         "goal_description": len(goal_description),
+        "project_documents_block": len(docs_block),
+        "available_secrets_block": len(secrets_blk),
         "http_ports_block": len(http_ports_block),
         "existing_tools_block": len(existing_tools_block),
         "static_template": len(_PROMPT_TEMPLATE),  # rough: includes placeholders
@@ -188,7 +196,8 @@ async def handle_plan(hub: HubClient, ollama: OllamaClient, envelope: dict) -> N
             await hub.task_event(task_id, "task.warning",
                                  {"message": f"could not fetch goal: {e}"})
 
-    prompt, sections = _render_prompt(project, goal)
+    prompt, sections = _render_prompt(project, goal, envelope.get("documents"),
+                                      envelope.get("secret_names"))
     await emit_prompt_metrics(hub, task_id, "planner", prompt, sections)
 
     await hub.task_event(task_id, "llm.call.started", {

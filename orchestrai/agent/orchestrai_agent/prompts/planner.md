@@ -11,6 +11,13 @@ GOAL
   Title:        {goal_title}
   Description:  {goal_description}
 
+PROJECT DOCUMENTS (extra context for this project — read before planning)
+{project_documents_block}
+
+AVAILABLE SECRETS (names only — if a task needs one, say so in its description;
+the implementer fetches the value securely at run time. NEVER inline values.)
+{available_secrets_block}
+
 EXISTING PROJECT TOOLS (already declared by earlier plans; tasks inherit them)
 {existing_tools_block}
 

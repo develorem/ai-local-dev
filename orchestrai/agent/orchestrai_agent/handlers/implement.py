@@ -17,6 +17,7 @@ from typing import Any, Optional
 from orchestrai_agent.config import config
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
+from orchestrai_agent.prompt_context import documents_block, secrets_block
 from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
@@ -248,12 +249,15 @@ def _tools_block(project: dict) -> str:
 
 
 def _render_pass1(project: dict, task: dict, workspace_tree: str,
-                  prior_files: dict | None = None) -> tuple[str, dict]:
+                  prior_files: dict | None = None, documents: list | None = None,
+                  secret_names: list | None = None) -> tuple[str, dict]:
     # Retry context is now bounded and folded together with prior_files
     # inside _build_retry_block (hard cap _RETRY_BUDGET_TOTAL).
     rs = _build_retry_block(task, prior_files=prior_files)
     project_description = project.get("description_md") or "(no description)"
     project_context = _indent(project.get("context_md") or "(no context)")
+    docs_block = documents_block(documents, budget=2000)
+    secrets_blk = secrets_block(secret_names)
     task_description = task.get("description_md") or "(no description)"
     criteria = _format_criteria(task.get("acceptance_criteria") or [])
     notes = _indent(task.get("notes") or "(none)")
@@ -264,6 +268,8 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
         project_name=project.get("name", "(unnamed)"),
         project_description=project_description,
         project_context_indented=project_context,
+        project_documents_block=docs_block,
+        available_secrets_block=secrets_blk,
         task_title=task.get("title", "(no title)"),
         task_description=task_description,
         repo_name="(no specific repo)",
@@ -279,6 +285,8 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
     sections = {
         "project_description": len(project_description),
         "project_context": len(project_context),
+        "project_documents_block": len(docs_block),
+        "available_secrets_block": len(secrets_blk),
         "task_description": len(task_description),
         "acceptance_criteria": len(criteria),
         "task_notes": len(notes),
@@ -292,7 +300,9 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
     return prompt, sections
 
 
-def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) -> tuple[str, dict]:
+def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict,
+                  documents: list | None = None,
+                  secret_names: list | None = None) -> tuple[str, dict]:
     files_summary = ", ".join(
         f"{f['path']} ({f.get('intent','')})"
         for f in (pass1.get("files_to_write_or_modify") or [])
@@ -306,6 +316,8 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
         files_block = "(no files to read — fresh workspace or no reads requested)"
     project_description = project.get("description_md") or "(no description)"
     project_context = _indent(project.get("context_md") or "(no context)")
+    docs_block = documents_block(documents, budget=2000)
+    secrets_blk = secrets_block(secret_names)
     task_description = task.get("description_md") or "(no description)"
     criteria = _format_criteria(task.get("acceptance_criteria") or [])
     retry = _build_retry_block(task)
@@ -317,6 +329,8 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
         project_name=project.get("name", "(unnamed)"),
         project_description=project_description,
         project_context_indented=project_context,
+        project_documents_block=docs_block,
+        available_secrets_block=secrets_blk,
         task_title=task.get("title", "(no title)"),
         task_description=task_description,
         repo_name="(no specific repo)",
@@ -333,6 +347,8 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict) 
     sections = {
         "project_description": len(project_description),
         "project_context": len(project_context),
+        "project_documents_block": len(docs_block),
+        "available_secrets_block": len(secrets_blk),
         "task_description": len(task_description),
         "acceptance_criteria": len(criteria),
         "retry_section": len(retry),
@@ -421,7 +437,7 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         unique_paths = [p for p in prev_paths if p and not (p in seen or seen.add(p))]
         prior_contents, _missing = read_files(workspace, unique_paths, max_chars=12_000)
         prior_files = prior_contents
-    pass1_prompt, pass1_sections = _render_pass1(project, task, tree, prior_files=prior_files)
+    pass1_prompt, pass1_sections = _render_pass1(project, task, tree, prior_files=prior_files, documents=envelope.get('documents'), secret_names=envelope.get('secret_names'))
     await emit_prompt_metrics(hub, task_id, "implementer_pass1", pass1_prompt,
                               pass1_sections, kind_hint=_kind_hint(task))
     await hub.task_event(task_id, "llm.call.started", {
@@ -494,7 +510,7 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
         })
 
     # 4. Pass 2: generate the diff
-    pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents)
+    pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents, documents=envelope.get('documents'), secret_names=envelope.get('secret_names'))
     await emit_prompt_metrics(hub, task_id, "implementer_pass2", pass2_prompt,
                               pass2_sections, kind_hint=_kind_hint(task))
     await hub.task_event(task_id, "llm.call.started", {

@@ -218,6 +218,16 @@ def claim(agent_id: str,
     ).fetchone()
     project_repo = dict(prepo) if prepo else None
 
+    # Project context for the agent's prompts: document content, and the NAMES
+    # (not values) of secrets available to the project (global + project-scoped).
+    documents = [dict(r) for r in conn.execute(
+        "SELECT title, content_md FROM project_documents WHERE project_id = ? "
+        "ORDER BY updated_at DESC", (row["project_id"],))]
+    secret_names = [dict(r) for r in conn.execute(
+        "SELECT name, description, scope FROM secrets "
+        "WHERE scope = 'global' OR scope = ? ORDER BY name",
+        (f"project:{row['project_id']}",))]
+
     emit(conn, "task.claimed", "task", row["id"],
          project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=row["id"], agent_id=agent_id, actor=f"agent:{agent_id}",
@@ -229,6 +239,8 @@ def claim(agent_id: str,
         "project": project_dict,
         "repo": repo,
         "project_repo": project_repo,
+        "documents": documents,
+        "secret_names": secret_names,
         "branch_name": row["branch_name"],
         "lease_expires_at": row["lease_expires_at"],
     }
