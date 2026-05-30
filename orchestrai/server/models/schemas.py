@@ -23,6 +23,7 @@ class ProjectCreate(_Base):
     description_md: str = ""
     context_md: str = ""
     execution_mode: ExecutionMode = "manual"
+    org_id: Optional[str] = None
 
 
 class ProjectUpdate(_Base):
@@ -191,6 +192,7 @@ class AgentRegister(_Base):
     host: Optional[str] = None
     version: str = ""
     kind: Literal["worker", "external"] = "worker"
+    org_id: Optional[str] = None
     capabilities: list[str] = Field(default_factory=list)
     # Host ports mapped into the agent container, available for hosting
     # demo/feedback servers. Identity-mapped (container port == host port).

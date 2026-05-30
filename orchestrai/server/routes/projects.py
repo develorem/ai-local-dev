@@ -1,13 +1,41 @@
 """Project CRUD + summary."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from server.auth import current_principal
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import Project, ProjectCreate, ProjectUpdate
+from server.services import tenancy
 from server.util import new_id, utcnow_iso, json_loads
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def _is_super(p: dict) -> bool:
+    return p.get("kind") == "operator" or p.get("is_superadmin")
+
+
+def _accessible_org_ids(conn, p: dict) -> list[str]:
+    if _is_super(p):
+        return [r["id"] for r in conn.execute("SELECT id FROM organizations")]
+    return [r["org_id"] for r in conn.execute(
+        "SELECT org_id FROM org_members WHERE user_id = ?", (p.get("user_id"),))]
+
+
+def _require_project_access(conn, request, project_id: str) -> dict:
+    """Return the project row, or 404/403. Superadmin sees all; users must be a
+    member of the project's org."""
+    p = current_principal(request)
+    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not row:
+        raise HTTPException(404)
+    if _is_super(p):
+        return row
+    org_id = row["org_id"] if "org_id" in row.keys() else None
+    if not org_id or tenancy.member_role(conn, p.get("user_id"), org_id) is None:
+        raise HTTPException(404)  # don't leak existence across tenants
+    return row
 
 
 def _row_to_project(row) -> dict:
@@ -32,22 +60,44 @@ def _row_to_project(row) -> dict:
 
 
 @router.post("", response_model=Project, status_code=201)
-def create_project(body: ProjectCreate, conn=Depends(db_dep)):
+def create_project(body: ProjectCreate, request: Request, conn=Depends(db_dep)):
+    p = current_principal(request)
+    # Resolve the target org.
+    org_id = body.org_id
+    if _is_super(p):
+        org_id = org_id or "org_default"
+    else:
+        if not org_id:
+            mine = _accessible_org_ids(conn, p)
+            if len(mine) == 1:
+                org_id = mine[0]
+            elif not mine:
+                raise HTTPException(400, detail={"error": {"code": "no_org",
+                    "message": "Create or join an organization first."}})
+            else:
+                raise HTTPException(400, detail={"error": {"code": "org_required",
+                    "message": "Specify which organization this project belongs to."}})
+        if tenancy.member_role(conn, p.get("user_id"), org_id) is None:
+            raise HTTPException(403, detail={"error": {"code": "not_a_member"}})
+        ok, msg = tenancy.can_add_project(conn, org_id)
+        if not ok:
+            raise HTTPException(402, detail={"error": {"code": "plan_limit", "message": msg}})
+
     now = utcnow_iso()
     pid = new_id()
     try:
         conn.execute(
             """
             INSERT INTO projects (id, name, slug, description_md, context_md,
-                                  status, execution_mode, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                                  status, execution_mode, org_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
             """,
             (pid, body.name, body.slug, body.description_md, body.context_md,
-             body.execution_mode, now, now),
+             body.execution_mode, org_id, now, now),
         )
         emit(conn, "project.created", "project", pid,
              project_id=pid, actor="user",
-             detail={"name": body.name, "slug": body.slug})
+             detail={"name": body.name, "slug": body.slug, "org_id": org_id})
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -61,18 +111,29 @@ def create_project(body: ProjectCreate, conn=Depends(db_dep)):
 
 
 @router.get("")
-def list_projects(status: str | None = None, limit: int = 50, conn=Depends(db_dep)):
+def list_projects(request: Request, status: str | None = None,
+                  org_id: str | None = None, limit: int = 50, conn=Depends(db_dep)):
     limit = max(1, min(limit, 500))
-    if status:
-        rows = conn.execute(
-            "SELECT * FROM projects WHERE status = ? ORDER BY updated_at DESC LIMIT ?",
-            (status, limit),
-        ).fetchall()
+    p = current_principal(request)
+    where, params = [], []
+    if _is_super(p):
+        if org_id:
+            where.append("org_id = ?"); params.append(org_id)
     else:
-        rows = conn.execute(
-            "SELECT * FROM projects ORDER BY updated_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        orgs = _accessible_org_ids(conn, p)
+        if org_id and org_id in orgs:
+            orgs = [org_id]
+        if not orgs:
+            return {"items": [], "next_cursor": None}
+        where.append("org_id IN (" + ",".join("?" * len(orgs)) + ")"); params.extend(orgs)
+    if status:
+        where.append("status = ?"); params.append(status)
+    q = "SELECT * FROM projects"
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY updated_at DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(q, params).fetchall()
 
     items = []
     for r in rows:
@@ -119,10 +180,8 @@ def list_projects(status: str | None = None, limit: int = 50, conn=Depends(db_de
 
 
 @router.get("/{project_id}")
-def get_project(project_id: str, conn=Depends(db_dep)):
-    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    if not row:
-        raise HTTPException(404)
+def get_project(project_id: str, request: Request, conn=Depends(db_dep)):
+    row = _require_project_access(conn, request, project_id)
     project = _row_to_project(row)
 
     repos = [dict(r) for r in conn.execute(
@@ -170,10 +229,8 @@ def get_project(project_id: str, conn=Depends(db_dep)):
 
 
 @router.patch("/{project_id}", response_model=Project)
-def update_project(project_id: str, body: ProjectUpdate, conn=Depends(db_dep)):
-    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    if not row:
-        raise HTTPException(404)
+def update_project(project_id: str, body: ProjectUpdate, request: Request, conn=Depends(db_dep)):
+    row = _require_project_access(conn, request, project_id)
 
     fields, params = [], []
     for f in ("name", "description_md", "context_md", "execution_mode"):
@@ -199,10 +256,8 @@ def update_project(project_id: str, body: ProjectUpdate, conn=Depends(db_dep)):
 
 
 @router.post("/{project_id}/archive")
-def archive_project(project_id: str, conn=Depends(db_dep)):
-    row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
-    if not row:
-        raise HTTPException(404)
+def archive_project(project_id: str, request: Request, conn=Depends(db_dep)):
+    row = _require_project_access(conn, request, project_id)
     now = utcnow_iso()
     conn.execute(
         "UPDATE projects SET status='archived', archived_at=?, updated_at=? WHERE id = ?",

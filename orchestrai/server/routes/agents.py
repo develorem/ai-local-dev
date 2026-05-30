@@ -7,7 +7,7 @@ task pickup. See SCHEMA.md / docs/API.md for the full contract.
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from server.config import config
 from server.db.connection import db_dep
@@ -53,17 +53,39 @@ def _row_to_agent(row) -> dict:
 
 
 @router.post("/register", response_model=AgentRegisterResponse)
-def register(body: AgentRegister, conn=Depends(db_dep)):
+def register(body: AgentRegister, request: Request, conn=Depends(db_dep)):
+    from server.auth import current_principal
+    from server.services import tenancy
+    p = current_principal(request)
+    # Resolve the org this agent belongs to. operator/superadmin default to the
+    # default org (e.g. the docker worker); a user must be a member + within plan.
+    org_id = body.org_id
+    if p.get("kind") == "operator" or p.get("is_superadmin"):
+        org_id = org_id or "org_default"
+    else:
+        if not org_id:
+            mine = [r["org_id"] for r in conn.execute(
+                "SELECT org_id FROM org_members WHERE user_id = ?", (p.get("user_id"),))]
+            if len(mine) == 1:
+                org_id = mine[0]
+            else:
+                raise HTTPException(400, detail={"error": {"code": "org_required"}})
+        if tenancy.member_role(conn, p.get("user_id"), org_id) is None:
+            raise HTTPException(403, detail={"error": {"code": "not_a_member"}})
+        ok, msg = tenancy.can_add_agent(conn, org_id)
+        if not ok:
+            raise HTTPException(402, detail={"error": {"code": "plan_limit", "message": msg}})
+
     aid = new_id()
     token = secrets.token_urlsafe(48)
     now = utcnow_iso()
     conn.execute(
         """
-        INSERT INTO agents (id, name, host, version, kind, capabilities,
+        INSERT INTO agents (id, name, host, version, kind, org_id, capabilities,
                             status, lease_token, last_heartbeat_at, registered_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'idle', ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?, ?)
         """,
-        (aid, body.name, body.host, body.version, body.kind,
+        (aid, body.name, body.host, body.version, body.kind, org_id,
          json_dumps(body.capabilities), token, now, now),
     )
     emit(conn, "agent.registered", "agent", aid,
@@ -305,16 +327,29 @@ def release(agent_id: str, body: dict = None,
 
 
 @router.get("")
-def list_agents(conn=Depends(db_dep)):
+def list_agents(request: Request, org_id: Optional[str] = None, conn=Depends(db_dep)):
+    from server.auth import current_principal
+    p = current_principal(request)
+    where, params = [], []
+    if not (p.get("kind") == "operator" or p.get("is_superadmin")):
+        mine = [r["org_id"] for r in conn.execute(
+            "SELECT org_id FROM org_members WHERE user_id = ?", (p.get("user_id"),))]
+        if not mine:
+            return {"items": []}
+        where.append("a.org_id IN (" + ",".join("?" * len(mine)) + ")"); params.extend(mine)
+    if org_id:
+        where.append("a.org_id = ?"); params.append(org_id)
     rows = conn.execute(
         """
         SELECT a.*, t.title AS _current_task_title, t.type AS _current_task_type
         FROM agents a
         LEFT JOIN tasks t ON t.id = a.current_task_id
+        """ + ("WHERE " + " AND ".join(where) if where else "") + """
         ORDER BY
           CASE a.status WHEN 'busy' THEN 0 WHEN 'idle' THEN 1 WHEN 'connected' THEN 2
                         WHEN 'lost' THEN 3 ELSE 4 END, a.registered_at DESC
-        """
+        """,
+        params,
     ).fetchall()
     items = []
     for r in rows:

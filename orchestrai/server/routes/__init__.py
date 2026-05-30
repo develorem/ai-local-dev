@@ -3,11 +3,14 @@ from fastapi import APIRouter
 from server.routes import (
     health, projects, repos, outcomes, tasks, agents, events, questions,
     plans, secrets as secrets_routes, discussions, webhooks,
-    documents, scheduled, previews,
+    documents, scheduled, previews, auth_routes, orgs, billing,
 )
 
 api = APIRouter(prefix="/api")
 api.include_router(health.router)
+api.include_router(auth_routes.router)
+api.include_router(orgs.router)
+api.include_router(billing.router)
 api.include_router(projects.router)
 api.include_router(repos.router)
 api.include_router(outcomes.router)
