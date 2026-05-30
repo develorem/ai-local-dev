@@ -12,6 +12,7 @@ from server.config import config
 from server.db import init_db, run_migrations
 from server.mcp_integration import mcp_asgi, mcp_server
 from server.reaper import start_reaper, stop_reaper
+from server.scheduler import start_scheduler, stop_scheduler
 from server.routes import api
 
 # Single-user local dev tool: disable browser caching on UI assets so the
@@ -32,6 +33,8 @@ async def lifespan(app: FastAPI):
           flush=True)
     reaper_task = start_reaper()
     print(f"[orchestrai] reaper started (interval={config.REAPER_INTERVAL_SEC}s)", flush=True)
+    scheduler_task = start_scheduler()
+    print("[orchestrai] scheduler started", flush=True)
     if AUTH_ENABLED:
         print("[orchestrai] token auth ENABLED (operator token set)", flush=True)
     else:
@@ -44,6 +47,7 @@ async def lifespan(app: FastAPI):
             yield
         finally:
             await stop_reaper(reaper_task)
+            await stop_scheduler(scheduler_task)
 
 
 app = FastAPI(

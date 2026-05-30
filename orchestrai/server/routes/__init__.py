@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from server.routes import (
     health, projects, repos, outcomes, tasks, agents, events, questions,
     plans, secrets as secrets_routes, discussions, webhooks,
+    documents, scheduled,
 )
 
 api = APIRouter(prefix="/api")
@@ -18,5 +19,7 @@ api.include_router(secrets_routes.router)
 api.include_router(discussions.router)
 api.include_router(webhooks.router)
 api.include_router(events.router)
+api.include_router(documents.router)
+api.include_router(scheduled.router)
 
 __all__ = ["api"]

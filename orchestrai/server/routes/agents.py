@@ -140,6 +140,14 @@ def claim(agent_id: str,
                 AND ((pa.grantee_type = 'agent' AND pa.grantee = ?)
                   OR (pa.grantee_type = 'kind'  AND pa.grantee =
                        (SELECT a.kind FROM agents a WHERE a.id = ?)))
+                -- role gates which task types this grant may claim ('any' = all)
+                AND (pa.role = 'any' OR pa.role = (CASE t.type
+                       WHEN 'plan' THEN 'plan'
+                       WHEN 'revise' THEN 'plan'
+                       WHEN 'discuss' THEN 'plan'
+                       WHEN 'review' THEN 'review'
+                       WHEN 'review_pr' THEN 'review'
+                       ELSE 'implement' END))
             )
             AND NOT EXISTS (
               SELECT 1 FROM json_each(t.depends_on) AS dep

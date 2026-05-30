@@ -54,6 +54,7 @@ class RepoCreate(_Base):
     url: str
     default_branch: str = "main"
     description_md: str = ""
+    auth_secret_name: Optional[str] = None
 
 
 class RepoUpdate(_Base):
@@ -62,6 +63,7 @@ class RepoUpdate(_Base):
     url: Optional[str] = None
     default_branch: Optional[str] = None
     description_md: Optional[str] = None
+    auth_secret_name: Optional[str] = None
 
 
 class Repo(_Base):
@@ -72,6 +74,7 @@ class Repo(_Base):
     url: str
     default_branch: str
     description_md: str
+    auth_secret_name: Optional[str] = None
     created_at: str
 
 

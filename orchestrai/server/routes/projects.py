@@ -148,7 +148,25 @@ def get_project(project_id: str, conn=Depends(db_dep)):
         (project_id,),
     ).fetchall()]
 
-    return {"project": project, "repos": repos, "outcomes": outcomes, "tasks": tasks}
+    # AI coverage: a project is AI-completable only if some granted agent covers
+    # each of plan / implement / review (role 'any' covers all three).
+    role_rows = conn.execute(
+        "SELECT role FROM project_agents WHERE project_id = ?", (project_id,)).fetchall()
+    covered: set = set()
+    for rr in role_rows:
+        role = rr["role"] if "role" in rr.keys() else "any"
+        covered |= {"plan", "implement", "review"} if role == "any" else {role}
+    needed = {"plan", "implement", "review"}
+    ai_coverage = {
+        "has_agents": len(role_rows) > 0,
+        "covered": sorted(covered),
+        "missing": sorted(needed - covered),
+        "complete": needed.issubset(covered),
+    }
+    github_configured = any((r.get("url") or "").strip() for r in repos)
+
+    return {"project": project, "repos": repos, "outcomes": outcomes, "tasks": tasks,
+            "ai_coverage": ai_coverage, "github_configured": github_configured}
 
 
 @router.patch("/{project_id}", response_model=Project)
@@ -204,10 +222,11 @@ def list_project_agents(project_id: str, conn=Depends(db_dep)):
         raise HTTPException(404)
     out = []
     for r in conn.execute(
-        "SELECT grantee_type, grantee, created_at FROM project_agents "
+        "SELECT grantee_type, grantee, role, created_at FROM project_agents "
         "WHERE project_id = ? ORDER BY created_at", (project_id,)
     ):
         g = {"grantee_type": r["grantee_type"], "grantee": r["grantee"],
+             "role": r["role"] if "role" in r.keys() else "any",
              "created_at": r["created_at"]}
         if r["grantee_type"] == "agent":
             a = conn.execute("SELECT name, status FROM agents WHERE id = ?",
@@ -218,25 +237,36 @@ def list_project_agents(project_id: str, conn=Depends(db_dep)):
     return {"items": out}
 
 
+_ROLES = ("any", "plan", "implement", "review")
+
+
 @router.post("/{project_id}/agents", status_code=201)
 def grant_project_agent(project_id: str, body: dict, conn=Depends(db_dep)):
     if not conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
         raise HTTPException(404)
     gtype = (body or {}).get("grantee_type")
     grantee = (body or {}).get("grantee")
+    role = (body or {}).get("role", "any")
     if gtype not in ("agent", "kind") or not grantee:
         raise HTTPException(400, detail={"error": {"code": "bad_grant",
                             "message": "grantee_type must be 'agent'|'kind' and grantee non-empty"}})
+    if role not in _ROLES:
+        raise HTTPException(400, detail={"error": {"code": "bad_role",
+                            "message": f"role must be one of {_ROLES}"}})
     if gtype == "kind" and grantee not in ("worker", "external"):
         raise HTTPException(400, detail={"error": {"code": "bad_kind"}})
     if gtype == "agent" and not conn.execute(
             "SELECT 1 FROM agents WHERE id = ?", (grantee,)).fetchone():
         raise HTTPException(404, detail={"error": {"code": "agent_not_found"}})
-    conn.execute("INSERT OR IGNORE INTO project_agents (project_id, grantee_type, grantee) "
-                 "VALUES (?, ?, ?)", (project_id, gtype, grantee))
+    # Upsert so re-granting an existing (project, grantee) updates its role.
+    conn.execute(
+        "INSERT INTO project_agents (project_id, grantee_type, grantee, role) "
+        "VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(project_id, grantee_type, grantee) DO UPDATE SET role = excluded.role",
+        (project_id, gtype, grantee, role))
     emit(conn, "project.agent_granted", "project", project_id,
          project_id=project_id, actor="user",
-         detail={"grantee_type": gtype, "grantee": grantee})
+         detail={"grantee_type": gtype, "grantee": grantee, "role": role})
     conn.commit()
     return {"ok": True}
 

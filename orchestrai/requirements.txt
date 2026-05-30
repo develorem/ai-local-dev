@@ -6,3 +6,4 @@ cryptography==44.0.0
 ulid-py==1.1.0
 httpx==0.28.1
 mcp>=1.2
+croniter==3.0.3

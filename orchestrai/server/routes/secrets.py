@@ -31,10 +31,21 @@ def _row_to_metadata(row) -> dict:
 # ---------- UI endpoints ---------------------------------------------------
 
 @router.get("")
-def list_secrets(conn=Depends(db_dep)):
-    rows = conn.execute(
-        "SELECT * FROM secrets ORDER BY name"
-    ).fetchall()
+def list_secrets(project_id: Optional[str] = None, conn=Depends(db_dep)):
+    """All secrets, or — with project_id — the secrets visible to that project:
+    global ones (inherited) + ones scoped to it. Each item is tagged `inherited`.
+    """
+    if project_id:
+        rows = conn.execute(
+            "SELECT * FROM secrets WHERE scope = 'global' OR scope = ? ORDER BY name",
+            (f"project:{project_id}",)).fetchall()
+        items = []
+        for r in rows:
+            m = _row_to_metadata(r)
+            m["inherited"] = (r["scope"] == "global")
+            items.append(m)
+        return {"items": items}
+    rows = conn.execute("SELECT * FROM secrets ORDER BY name").fetchall()
     return {"items": [_row_to_metadata(r) for r in rows]}
 
 

@@ -16,6 +16,8 @@ def _row_to_repo(row) -> dict:
         "role": row["role"], "url": row["url"],
         "default_branch": row["default_branch"],
         "description_md": row["description_md"],
+        "auth_secret_name": (row["auth_secret_name"]
+                             if "auth_secret_name" in row.keys() else None),
         "created_at": row["created_at"],
     }
 
@@ -32,11 +34,12 @@ def create_repo(project_id: str, body: RepoCreate, conn=Depends(db_dep)):
         conn.execute(
             """
             INSERT INTO project_repos (id, project_id, name, role, url,
-                                       default_branch, description_md, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                       default_branch, description_md,
+                                       auth_secret_name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (rid, project_id, body.name, body.role, body.url,
-             body.default_branch, body.description_md, now),
+             body.default_branch, body.description_md, body.auth_secret_name, now),
         )
         emit(conn, "repo.created", "repo", rid,
              project_id=project_id, actor="user",
@@ -92,7 +95,7 @@ def update_repo(repo_id: str, body: RepoUpdate, conn=Depends(db_dep)):
     if not row:
         raise HTTPException(404)
     fields, params = [], []
-    for f in ("name", "role", "url", "default_branch", "description_md"):
+    for f in ("name", "role", "url", "default_branch", "description_md", "auth_secret_name"):
         v = getattr(body, f)
         if v is not None:
             fields.append(f"{f} = ?")

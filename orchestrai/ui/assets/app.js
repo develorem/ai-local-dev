@@ -514,6 +514,33 @@ function openProjectModal() {
   card.querySelector('input[name=name]').focus();
 }
 
+function openDocForm(project_id, doc, onDone) {
+  const overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;' });
+  const close = () => overlay.remove();
+  const card = el('div', { class: 'card', style: 'width:680px;max-width:92vw;max-height:88vh;overflow:auto;',
+      onClick: (e) => e.stopPropagation() },
+    el('h3', {}, doc ? 'Edit document' : 'New document'),
+    el('form', { class: 'form-grid', onSubmit: async (e) => {
+      e.preventDefault(); const fm = e.target;
+      const body = { title: fm.title.value.trim(), content_md: fm.content.value };
+      try {
+        if (doc) await api(`/documents/${doc.id}`, { method: 'PATCH', body });
+        else await api('/documents', { method: 'POST', body: { project_id, ...body } });
+        toast('Saved', 'success'); close(); if (onDone) onDone();
+      } catch (err) { toast('Save failed: ' + err.message, 'error', 6000); }
+    }},
+      el('label', {}, 'Title', el('input', { name: 'title', type: 'text', required: true, value: doc ? doc.title : '' })),
+      el('label', {}, 'Content (markdown)',
+        el('textarea', { name: 'content', style: 'min-height:280px;font-family:monospace;' }, doc ? doc.content_md : '')),
+      el('div', { style: 'display:flex;gap:8px;' },
+        el('button', { type: 'submit' }, 'Save'),
+        el('button', { type: 'button', class: 'secondary', onClick: close }, 'Cancel'))));
+  overlay.onclick = close;
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  card.querySelector('input[name=title]').focus();
+}
+
 route('/projects/:project_id', async ({ project_id }) => {
   setActiveNav('projects');
   const data = await api(`/projects/${project_id}`);
@@ -530,6 +557,142 @@ route('/projects/:project_id', async ({ project_id }) => {
     content.appendChild(el('div', { class: 'card' },
       el('h3', {}, 'Context'),
       el('pre', { style: 'white-space:pre-wrap;font-family:monospace;font-size:12px;margin:0;' }, p.context_md)));
+  }
+
+  // ---- Warnings: AI coverage + GitHub ---------------------------------
+  const _warn = 'border-color:#b5862a;background:#3a2f12;';
+  const cov = data.ai_coverage || {};
+  if (!cov.complete) {
+    const msg = !cov.has_agents
+      ? 'No agents are assigned — this project cannot be completed by AI yet. Assign agents under Access below.'
+      : `This project cannot be completed by AI until all aspects are covered. Missing role(s): ${(cov.missing || []).join(', ')}. Assign agents for these under Access.`;
+    content.appendChild(el('div', { class: 'card', style: _warn },
+      el('strong', {}, '⚠ AI coverage incomplete'),
+      el('div', { class: 'muted', style: 'margin-top:4px;' }, msg)));
+  }
+  if (!data.github_configured) {
+    content.appendChild(el('div', { class: 'card', style: _warn },
+      el('strong', {}, '⚠ No GitHub repository configured'),
+      el('div', { class: 'muted', style: 'margin-top:4px;' },
+        'The agent will use a local-only git repo for tracking. Connect a repository under GitHub below to clone/push a real repo.')));
+  }
+
+  // ---- Documents (project context for agents + humans) ----------------
+  {
+    const host = el('div', {});
+    content.appendChild(el('div', { class: 'card' },
+      el('h3', {}, 'Documents ',
+        el('button', { onClick: () => openDocForm(project_id, null, refreshDocs) }, '+ Add')),
+      host));
+    var refreshDocs = async () => {
+      host.innerHTML = '';
+      let docs = [];
+      try { docs = (await api(`/documents?project_id=${project_id}`)).items || []; } catch (e) {}
+      if (!docs.length) host.appendChild(el('div', { class: 'muted' }, 'No documents yet — add context describing this project.'));
+      for (const d of docs) host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:3px 0;' },
+        el('a', { href: '#', onClick: (e) => { e.preventDefault(); openDocForm(project_id, d, refreshDocs); } }, d.title),
+        el('button', { class: 'secondary', onClick: async () => { await api(`/documents/${d.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshDocs(); } }, 'Delete')));
+    };
+    await refreshDocs();
+  }
+
+  // ---- GitHub ----------------------------------------------------------
+  {
+    const host = el('div', {});
+    content.appendChild(el('div', { class: 'card' }, el('h3', {}, 'GitHub'), host));
+    const refreshRepos = async () => {
+      host.innerHTML = '';
+      let repos = [];
+      try { repos = (await api(`/projects/${project_id}/repos`)).items || []; } catch (e) {}
+      if (!repos.length) host.appendChild(el('div', { class: 'muted' }, 'No repository connected (local-only git is used).'));
+      for (const r of repos) host.appendChild(el('div', { style: 'margin:3px 0;' },
+        el('span', {}, `${r.name}: ${r.url}`),
+        r.auth_secret_name ? el('span', { class: 'muted', style: 'font-size:11px;' }, ` · auth: ${r.auth_secret_name}`) : null,
+        el('button', { class: 'secondary', style: 'margin-left:8px;', onClick: async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); toast('Removed', 'success'); refreshRepos(); } }, 'Remove')));
+      const f = el('form', { style: 'margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;',
+        onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
+          try { await api(`/projects/${project_id}/repos`, { method: 'POST', body: {
+              name: fm.rname.value.trim() || 'origin', url: fm.url.value.trim(),
+              default_branch: fm.branch.value.trim() || 'main',
+              auth_secret_name: fm.secret.value.trim() || null } });
+            toast('Repository connected', 'success'); fm.reset(); refreshRepos(); }
+          catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
+        el('input', { name: 'rname', placeholder: 'name (origin)', style: 'width:110px;' }),
+        el('input', { name: 'url', placeholder: 'https://github.com/you/repo.git', required: true, style: 'flex:1;min-width:220px;' }),
+        el('input', { name: 'branch', placeholder: 'main', style: 'width:80px;' }),
+        el('input', { name: 'secret', placeholder: 'auth secret name (optional)', style: 'width:170px;' }),
+        el('button', { type: 'submit' }, 'Connect'));
+      host.appendChild(f);
+    };
+    await refreshRepos();
+  }
+
+  // ---- Secrets (inherited globals + project-scoped) -------------------
+  {
+    const host = el('div', {});
+    content.appendChild(el('div', { class: 'card' }, el('h3', {}, 'Secrets'), host));
+    const refreshSec = async () => {
+      host.innerHTML = '';
+      let secrets = [];
+      try { secrets = (await api(`/secrets?project_id=${project_id}`)).items || []; } catch (e) {}
+      const inh = secrets.filter(s => s.inherited), own = secrets.filter(s => !s.inherited);
+      host.appendChild(el('div', { class: 'muted', style: 'font-size:12px;' }, `Inherited from top level (${inh.length}):`));
+      const inhHost = el('div', { class: 'tool-list' });
+      if (inh.length) inh.forEach(s => inhHost.appendChild(el('span', { class: 'pill' }, s.name)));
+      else inhHost.appendChild(el('span', { class: 'muted' }, 'none'));
+      host.appendChild(inhHost);
+      host.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:8px;' }, 'Scoped to this project:'));
+      if (!own.length) host.appendChild(el('div', { class: 'muted' }, 'none'));
+      for (const s of own) host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:2px 0;' },
+        el('span', {}, s.name),
+        el('button', { class: 'secondary', onClick: async () => { await api(`/secrets/${s.name}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshSec(); } }, 'Delete')));
+      const f = el('form', { style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;',
+        onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
+          try { await api('/secrets', { method: 'POST', body: {
+              name: fm.sname.value.trim(), value: fm.sval.value,
+              scope: `project:${project_id}`, description: 'project-scoped' } });
+            toast('Secret added', 'success'); fm.reset(); refreshSec(); }
+          catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
+        el('input', { name: 'sname', placeholder: 'NAME', required: true, style: 'width:150px;' }),
+        el('input', { name: 'sval', type: 'password', placeholder: 'value', required: true, style: 'flex:1;min-width:150px;' }),
+        el('button', { type: 'submit' }, 'Add scoped secret'));
+      host.appendChild(f);
+    };
+    await refreshSec();
+  }
+
+  // ---- Scheduled tasks (cron -> backlog) ------------------------------
+  {
+    const host = el('div', {});
+    content.appendChild(el('div', { class: 'card' }, el('h3', {}, 'Scheduled tasks'), host));
+    const refreshSched = async () => {
+      host.innerHTML = '';
+      let items = [];
+      try { items = (await api(`/scheduled?project_id=${project_id}`)).items || []; } catch (e) {}
+      if (!items.length) host.appendChild(el('div', { class: 'muted' }, 'No scheduled tasks. Add a cron to queue tasks automatically.'));
+      for (const s of items) host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:3px 0;flex-wrap:wrap;' },
+        el('strong', {}, s.name), el('code', {}, s.cron),
+        el('span', { class: 'muted', style: 'font-size:11px;' }, `${s.task_type} · next ${fmtTime(s.next_run_at)}`),
+        el('button', { class: 'secondary', onClick: async () => { await api(`/scheduled/${s.id}/run-now`, { method: 'POST' }); toast('Queued now', 'success'); } }, 'Run now'),
+        el('button', { class: 'secondary', onClick: async () => { await api(`/scheduled/${s.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshSched(); } }, 'Delete')));
+      const f = el('form', { style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;',
+        onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
+          try { await api('/scheduled', { method: 'POST', body: {
+              project_id, name: fm.nm.value.trim() || fm.title.value.trim(),
+              cron: fm.cron.value.trim(), title: fm.title.value.trim(),
+              description_md: fm.desc.value, task_type: fm.ttype.value } });
+            toast('Scheduled', 'success'); fm.reset(); refreshSched(); }
+          catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
+        el('input', { name: 'nm', placeholder: 'name', style: 'width:110px;' }),
+        el('input', { name: 'cron', placeholder: '0 2 * * *', required: true, style: 'width:120px;' }),
+        el('input', { name: 'title', placeholder: 'task title', required: true, style: 'flex:1;min-width:150px;' }),
+        el('select', { name: 'ttype' }, el('option', { value: 'implement' }, 'implement'),
+          el('option', { value: 'review' }, 'review'), el('option', { value: 'plan' }, 'plan')),
+        el('input', { name: 'desc', placeholder: 'description', style: 'flex:1;min-width:150px;' }),
+        el('button', { type: 'submit' }, 'Add'));
+      host.appendChild(f);
+    };
+    await refreshSched();
   }
 
   // ---- Required tools (populated by the planner; agent installs at claim) ---
@@ -570,12 +733,14 @@ route('/projects/:project_id', async ({ project_id }) => {
     try { grants = (await api(`/projects/${project_id}/agents`)).items || []; } catch (e) { /* */ }
     try { agents = (await api('/agents')).items || []; } catch (e) { /* */ }
     if (!grants.length) grantsHost.appendChild(el('div', { class: 'muted' }, 'No agents granted.'));
+    const roleLabel = { any: 'everything', plan: 'planning', implement: 'coding', review: 'reviewing' };
     for (const g of grants) {
       const label = g.grantee_type === 'kind'
         ? (g.grantee === 'worker' ? 'OrchestrAi worker (all instances)' : `kind: ${g.grantee}`)
         : (g.agent_name || g.grantee);
       grantsHost.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin:3px 0;' },
         el('span', {}, label),
+        el('span', { class: 'pill' }, roleLabel[g.role] || g.role || 'everything'),
         (g.grantee_type === 'agent' && g.agent_status) ? pill(g.agent_status) : null,
         el('button', {
           onClick: async () => {
@@ -589,12 +754,18 @@ route('/projects/:project_id', async ({ project_id }) => {
       opts.push(el('option', { value: `agent:${a.id}` }, `${a.name} (external)`));
     }
     const addSel = el('select', {}, ...opts);
-    grantsHost.appendChild(el('div', { style: 'margin-top:8px;' }, addSel,
-      el('button', { style: 'margin-left:6px;',
+    const roleSel = el('select', {},
+      el('option', { value: 'any' }, 'do everything'),
+      el('option', { value: 'plan' }, 'planning only'),
+      el('option', { value: 'implement' }, 'coding only'),
+      el('option', { value: 'review' }, 'reviewing only'));
+    grantsHost.appendChild(el('div', { style: 'margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;' },
+      addSel, el('span', { class: 'muted' }, 'role:'), roleSel,
+      el('button', {
         onClick: async () => {
           const v = addSel.value; const i = v.indexOf(':');
           await api(`/projects/${project_id}/agents`, {
-            method: 'POST', body: { grantee_type: v.slice(0, i), grantee: v.slice(i + 1) } });
+            method: 'POST', body: { grantee_type: v.slice(0, i), grantee: v.slice(i + 1), role: roleSel.value } });
           toast('Access granted', 'success'); renderGrants();
         } }, '+ Grant access')));
   };
