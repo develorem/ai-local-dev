@@ -16,6 +16,7 @@ from server.models import (
     AgentRegister, AgentRegisterResponse,
 )
 from server.routes.tasks import row_to_task
+from server.services import doc_index
 from server.util import new_id, utcnow_iso, json_dumps, json_loads
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -228,6 +229,26 @@ def claim(agent_id: str,
         "WHERE scope = 'global' OR scope = ? ORDER BY name",
         (f"project:{row['project_id']}",))]
 
+    # Reindex tasks carry the docs that need a fresh purpose line. The Hub
+    # filters to stale docs and stamps the signature the purpose will be keyed
+    # to, so the agent echoes it back and we mark the doc fresh only against the
+    # exact content it was written for (an edit mid-flight stays stale).
+    reindex_targets = []
+    if row["type"] == "reindex":
+        for d in conn.execute(
+            "SELECT id, title, content_md, headings, purpose, indexed_hash "
+            "FROM project_documents WHERE project_id = ?", (row["project_id"],)):
+            dd = dict(d)
+            if not doc_index.is_stale(dd):
+                continue
+            reindex_targets.append({
+                "document_id": dd["id"],
+                "title": dd["title"],
+                "headings": json_loads(dd["headings"], []),
+                "content_excerpt": (dd["content_md"] or "")[:2000],
+                "signature": doc_index.doc_signature(dd["title"], dd["content_md"]),
+            })
+
     emit(conn, "task.claimed", "task", row["id"],
          project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=row["id"], agent_id=agent_id, actor=f"agent:{agent_id}",
@@ -241,6 +262,7 @@ def claim(agent_id: str,
         "project_repo": project_repo,
         "documents": documents,
         "secret_names": secret_names,
+        "reindex_targets": reindex_targets,
         "branch_name": row["branch_name"],
         "lease_expires_at": row["lease_expires_at"],
     }

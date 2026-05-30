@@ -415,6 +415,31 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
     if is_task_repair:
         new_status = "done"
 
+    elif row["type"] == "reindex" and outcome == "success":
+        # Write each doc's purpose, keyed to the signature the agent generated it
+        # from. If the doc changed since (or the task only covered some docs),
+        # is_stale stays true and enqueue_reindex_if_needed queues a follow-up.
+        from server.services.doc_index import enqueue_reindex_if_needed
+        applied = 0
+        for p in (result.get("purposes") or []):
+            if not isinstance(p, dict):
+                continue
+            did = p.get("document_id")
+            purpose = (p.get("purpose") or "").strip()
+            sig = p.get("signature")
+            if not did or not purpose or not sig:
+                continue
+            cur = conn.execute(
+                "UPDATE project_documents SET purpose = ?, indexed_hash = ? "
+                "WHERE id = ? AND project_id = ?",
+                (purpose[:300], sig, did, row["project_id"]))
+            applied += cur.rowcount
+        enqueue_reindex_if_needed(conn, row["project_id"])
+        emit(conn, "document.reindexed", "project", row["project_id"],
+             project_id=row["project_id"], task_id=task_id, actor="system",
+             detail={"applied": applied})
+        new_status = "done"
+
     elif row["type"] in ("plan", "revise") and outcome == "success":
         # Plan tasks: persist a plan row + open a plan_approval question
         plan_md = result.get("plan_md", "")
