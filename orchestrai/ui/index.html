@@ -7,29 +7,25 @@
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="logo">OrchestrAi</div>
-    <nav>
-      <a href="#/agents" data-nav="agents">Agents</a>
-      <a href="#/projects" data-nav="projects">Projects</a>
-      <a href="#/connect" data-nav="connect">Connect</a>
-      <a href="#/vault" data-nav="vault">Vault</a>
+  <header class="topbar" id="topbar" hidden>
+    <a class="brand" href="#/projects">
+      <span class="brand-mark">◇</span>
+      <span class="brand-name">OrchestrAi</span>
+    </a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Menu">☰</button>
+    <nav class="topnav" id="topnav">
+      <div class="dropdown" id="projects-dd">
+        <button class="dd-btn" id="projects-dd-btn">Projects ▾</button>
+        <div class="dd-menu" id="projects-menu"></div>
+      </div>
+      <a href="#/questions" class="topnav-link">Questions <span id="notif-count" class="badge">0</span></a>
+      <a href="#/agents" class="topnav-link">Agents</a>
+      <a href="#/settings" class="topnav-link">Settings</a>
     </nav>
-    <div class="status" id="health-status">
-      <div>Hub: <span id="hub-status">…</span></div>
-      <div>Ollama: <span id="ollama-status">…</span></div>
-      <div>Agents: <span id="agent-count">…</span></div>
-    </div>
-  </aside>
-
-  <header class="topbar">
-    <div id="breadcrumb">…</div>
-    <div class="notifications">
-      <button id="notif-btn" title="Pending questions">
-        <span id="notif-count">0</span> pending
-      </button>
-    </div>
+    <div class="userbox" id="userbox"></div>
   </header>
+
+  <div id="breadcrumb" class="breadcrumb" hidden></div>
 
   <main id="content">
     <p class="muted">Loading…</p>

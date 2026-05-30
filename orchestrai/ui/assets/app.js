@@ -4,53 +4,73 @@ const API = '/api';
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-// ---- Auth: the operator token (if the hub requires one) ------------------
-let AUTH_TOKEN = localStorage.getItem('orchestrai_token') || '';
+// ---- Auth: session (Google / dev login), operator token as superadmin ----
+let AUTH_TOKEN = localStorage.getItem('orchestrai_token') || '';  // operator escape hatch
+let CURRENT_USER = null;
+let MY_ORGS = [];
+let CURRENT_ORG_ID = localStorage.getItem('orchestrai_org') || '';
 let _loginShown = false;
 
-function showLogin() {
+function currentOrg() {
+  if (CURRENT_ORG_ID && MY_ORGS.find(o => o.id === CURRENT_ORG_ID)) return CURRENT_ORG_ID;
+  return MY_ORGS.length ? MY_ORGS[0].id : '';
+}
+function setOrg(id) { CURRENT_ORG_ID = id; localStorage.setItem('orchestrai_org', id); }
+
+async function showLogin() {
   if (_loginShown) return;
   _loginShown = true;
+  const tb = document.getElementById('topbar'); if (tb) tb.hidden = true;
+  let cfg = { google_enabled: false, dev_login_enabled: true };
+  try { cfg = await (await fetch('/api/auth/config')).json(); } catch (e) {}
   const c = document.getElementById('content');
-  c.innerHTML = `
-    <h1>Sign in</h1>
-    <p class="muted">This OrchestrAi hub requires an operator token.</p>
-    <div style="display:flex;gap:8px;align-items:center;max-width:420px;">
-      <input id="op-token" type="password" placeholder="Operator token"
-             style="flex:1;" />
-      <button id="op-login">Sign in</button>
-    </div>`;
-  const submit = () => {
-    const t = document.getElementById('op-token').value.trim();
-    if (!t) return;
-    localStorage.setItem('orchestrai_token', t);
-    location.reload();
-  };
-  document.getElementById('op-login').onclick = submit;
-  document.getElementById('op-token').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') submit();
-  });
+  c.innerHTML = '';
+  const card = el('div', { class: 'login-card' },
+    el('div', { class: 'brand-mark' }, '◇'),
+    el('h1', { style: 'margin:8px 0 4px;' }, 'OrchestrAi'),
+    el('p', { class: 'muted' }, 'Sign in to continue'));
+  if (cfg.google_enabled) {
+    card.appendChild(el('a', { class: 'btn btn-google', href: '/api/auth/google/login' },
+      'Continue with Google'));
+  }
+  if (cfg.dev_login_enabled) {
+    if (cfg.google_enabled) card.appendChild(el('div', { class: 'muted', style: 'margin:12px 0;font-size:12px;' }, '— or (dev) —'));
+    card.appendChild(el('form', {
+      onSubmit: async (e) => { e.preventDefault();
+        const email = e.target.email.value.trim(); if (!email) return;
+        try { await api('/auth/dev-login', { method: 'POST', body: { email, name: email.split('@')[0] } });
+          location.reload(); }
+        catch (err) { toast('Login failed: ' + err.message, 'error'); } } },
+      el('input', { name: 'email', type: 'email', placeholder: 'you@example.com', required: true, style: 'margin-bottom:8px;' }),
+      el('button', { type: 'submit', style: 'width:100%;' }, 'Dev sign in')));
+  }
+  const advForm = el('form', { style: 'margin-top:8px;',
+    onSubmit: (e) => { e.preventDefault(); const t = e.target.tok.value.trim();
+      if (!t) return; localStorage.setItem('orchestrai_token', t); location.reload(); } },
+    el('input', { name: 'tok', type: 'password', placeholder: 'operator token', style: 'margin-bottom:8px;' }),
+    el('button', { type: 'submit', class: 'secondary', style: 'width:100%;' }, 'Use operator token'));
+  card.appendChild(el('details', { style: 'margin-top:16px;text-align:left;' },
+    el('summary', { class: 'muted', style: 'cursor:pointer;font-size:12px;' }, 'Operator token'),
+    advForm));
+  c.appendChild(el('div', { class: 'login-wrap' }, card));
 }
 
 function signOut() {
+  api('/auth/logout', { method: 'POST' }).catch(() => {});
   localStorage.removeItem('orchestrai_token');
+  localStorage.removeItem('orchestrai_org');
   location.reload();
 }
 
-// Probe a cheap authed endpoint before booting the app. If the hub requires a
-// token and ours is missing/invalid, show the login screen and DON'T let the
-// rest of the app render (a route render would clobber the login form, and its
-// own 401 is suppressed once _loginShown is set — leaving a bare "unauthorized").
+// Resolve the signed-in user before booting. No user -> show login and stop.
 async function ensureAuthed() {
   try {
-    const res = await fetch(API + '/questions?status=pending&limit=1', {
-      headers: AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {},
-    });
-    if (res.status === 401) { showLogin(); return false; }
-    return true;
-  } catch (e) {
-    return true;  // hub unreachable — let the app load and show it as down
-  }
+    const me = await (await fetch('/api/auth/me',
+      { headers: AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {} })).json();
+    if (me && me.user) { CURRENT_USER = me.user; MY_ORGS = me.orgs || []; return true; }
+  } catch (e) {}
+  await showLogin();
+  return false;
 }
 
 // ---- Toast notifications -------------------------------------------------
@@ -153,23 +173,24 @@ function onEvent(fn) { wsListeners.add(fn); return () => wsListeners.delete(fn);
 
 // -------- Periodic health refresh ---------------------------------------
 async function refreshHealth() {
+  // Health badge lives in the topbar user menu; tolerate its absence.
+  const dot = $('#health-dot');
+  if (!dot) return;
   try {
     const h = await api('/health');
-    $('#hub-status').textContent = h.status;
-    $('#hub-status').className = h.status === 'ok' ? 'pill pill-active' : 'pill pill-failed';
-    $('#ollama-status').textContent = h.ollama.reachable ? 'ok' : 'down';
-    $('#ollama-status').className = h.ollama.reachable ? 'pill pill-active' : 'pill pill-failed';
-    $('#agent-count').textContent = `${h.agents.connected} (${h.agents.busy} busy, ${h.agents.lost} lost)`;
+    dot.textContent = h.status === 'ok' ? '● hub ok' : '● hub ' + h.status;
+    dot.className = 'muted';
   } catch (e) {
-    $('#hub-status').textContent = 'unreachable';
-    $('#hub-status').className = 'pill pill-failed';
+    dot.textContent = '● hub unreachable';
   }
 }
 
 async function refreshNotifications() {
   try {
     const data = await api('/questions?status=pending&limit=200');
-    $('#notif-count').textContent = data.items.length;
+    const n = data.items.length;
+    const badge = $('#notif-count');
+    if (badge) { badge.textContent = n ? n : ''; badge.classList.toggle('zero', !n); }
     window._pendingQuestions = data.items;
   } catch {}
 }
@@ -228,13 +249,15 @@ function matchRoute(hash) {
 }
 
 function setActiveNav(name) {
-  $$('.sidebar nav a').forEach(a => {
-    a.classList.toggle('active', a.dataset.nav === name);
+  $$('#topnav .topnav-link').forEach(a => {
+    a.classList.toggle('active', (a.getAttribute('href') || '').includes('/' + name));
   });
 }
 
 function setBreadcrumb(parts) {
-  $('#breadcrumb').innerHTML = '';
+  const bc = $('#breadcrumb');
+  bc.hidden = false;
+  bc.innerHTML = '';
   parts.forEach((p, i) => {
     if (i > 0) $('#breadcrumb').appendChild(document.createTextNode(' › '));
     if (p.href) {
@@ -270,12 +293,14 @@ route('/agents', async () => {
   setActiveNav('agents');
   setBreadcrumb([{ label: 'Agents' }]);
   const content = $('#content');
-  content.innerHTML = '<h1>Agents</h1>';
+  content.innerHTML = '';
+  content.appendChild(el('h1', {}, 'Agents ',
+    el('button', { onClick: openAddAgentModal }, '+ Add agent')));
 
   const data = await api('/agents');
   if (data.items.length === 0) {
     content.appendChild(el('div', { class: 'card muted' },
-      'No agents registered yet. The first Agent container will appear here when it boots.'));
+      'No agents yet. Click “+ Add agent” to register one (e.g. a Claude Code instance), or your OrchestrAi worker appears here when it boots.'));
     return;
   }
   for (const a of data.items) {
@@ -505,6 +530,7 @@ function openProjectModal() {
           slug: f.slug.value.trim(),
           description_md: f.description_md.value,
           context_md: f.context_md.value,
+          org_id: currentOrg() || undefined,
         }});
         toast(`Project "${result.name}" created`, 'success');
         host.innerHTML = '';
@@ -558,7 +584,17 @@ function openDocForm(project_id, doc, onDone) {
   card.querySelector('input[name=title]').focus();
 }
 
+const PROJECT_TABS = [
+  ['overview', 'Overview'], ['outcomes', 'Outcomes'], ['tasks', 'Tasks'],
+  ['documents', 'Documents'], ['access', 'Agents & Access'], ['preview', 'App Preview'],
+  ['github', 'GitHub'], ['secrets', 'Secrets'], ['scheduled', 'Scheduled'],
+];
+
 route('/projects/:project_id', async ({ project_id }) => {
+  location.hash = `#/projects/${project_id}/overview`;
+});
+
+route('/projects/:project_id/:tab', async ({ project_id, tab }) => {
   setActiveNav('projects');
   const data = await api(`/projects/${project_id}`);
   const p = data.project;
@@ -566,349 +602,209 @@ route('/projects/:project_id', async ({ project_id }) => {
   const content = $('#content');
   content.innerHTML = '';
   content.appendChild(el('h1', {}, p.name));
-
-  if (p.description_md) {
-    content.appendChild(el('div', { class: 'card' }, p.description_md));
+  const layout = el('div', { class: 'project-layout' });
+  const nav = el('nav', { class: 'project-tabs' });
+  for (const [key, label] of PROJECT_TABS) {
+    nav.appendChild(el('a', { href: `#/projects/${project_id}/${key}`,
+      class: key === tab ? 'active' : '' }, label));
   }
-  if (p.context_md) {
-    content.appendChild(el('div', { class: 'card' },
-      el('h3', {}, 'Context'),
+  const panel = el('div', { class: 'project-panel' });
+  layout.appendChild(nav); layout.appendChild(panel);
+  content.appendChild(layout);
+  const fn = PROJECT_TAB[tab] || PROJECT_TAB.overview;
+  try { await fn(project_id, panel, data); }
+  catch (e) { panel.appendChild(el('p', { class: 'danger' }, 'Error: ' + e.message)); }
+});
+
+const PROJECT_TAB = {
+  overview(project_id, host, data) {
+    const p = data.project;
+    if (p.description_md) host.appendChild(el('div', { class: 'card' }, p.description_md));
+    if (p.context_md) host.appendChild(el('div', { class: 'card' }, el('h3', {}, 'Context'),
       el('pre', { style: 'white-space:pre-wrap;font-family:monospace;font-size:12px;margin:0;' }, p.context_md)));
-  }
-
-  // ---- Warnings: AI coverage + GitHub ---------------------------------
-  const _warn = 'border-color:#b5862a;background:#3a2f12;';
-  const cov = data.ai_coverage || {};
-  if (!cov.complete) {
-    const msg = !cov.has_agents
-      ? 'No agents are assigned — this project cannot be completed by AI yet. Assign agents under Access below.'
-      : `This project cannot be completed by AI until all aspects are covered. Missing role(s): ${(cov.missing || []).join(', ')}. Assign agents for these under Access.`;
-    content.appendChild(el('div', { class: 'card', style: _warn },
+    const _warn = 'border-color:#b5862a;background:#3a2f12;';
+    const cov = data.ai_coverage || {};
+    if (!cov.complete) host.appendChild(el('div', { class: 'card', style: _warn },
       el('strong', {}, '⚠ AI coverage incomplete'),
-      el('div', { class: 'muted', style: 'margin-top:4px;' }, msg)));
-  }
-  if (!data.github_configured) {
-    content.appendChild(el('div', { class: 'card', style: _warn },
+      el('div', { class: 'muted', style: 'margin-top:4px;' }, !cov.has_agents
+        ? 'No agents assigned — assign agents under Agents & Access.'
+        : `Missing role(s): ${(cov.missing || []).join(', ')}. Assign agents under Agents & Access.`)));
+    if (!data.github_configured) host.appendChild(el('div', { class: 'card', style: _warn },
       el('strong', {}, '⚠ No GitHub repository configured'),
-      el('div', { class: 'muted', style: 'margin-top:4px;' },
-        'The agent will use a local-only git repo for tracking. Connect a repository under GitHub below to clone/push a real repo.')));
-  }
-
-  // ---- Documents (project context for agents + humans) ----------------
-  {
-    const host = el('div', {});
-    content.appendChild(el('div', { class: 'card' },
-      el('h3', {}, 'Documents ',
-        el('button', { onClick: () => openDocForm(project_id, null, refreshDocs) }, '+ Add')),
-      host));
-    var refreshDocs = async () => {
-      host.innerHTML = '';
-      let docs = [];
-      try { docs = (await api(`/documents?project_id=${project_id}`)).items || []; } catch (e) {}
-      if (!docs.length) host.appendChild(el('div', { class: 'muted' }, 'No documents yet — add context describing this project.'));
+      el('div', { class: 'muted', style: 'margin-top:4px;' }, 'A local-only git repo is used. Connect a repo under GitHub.')));
+    host.appendChild(el('div', { class: 'card' }, el('div', { class: 'kvs' },
+      el('div', { class: 'k' }, 'Outcomes'), el('div', {}, String(data.outcomes.length)),
+      el('div', { class: 'k' }, 'Tasks'), el('div', {}, String(data.tasks.length)),
+      el('div', { class: 'k' }, 'Repos'), el('div', {}, String(data.repos.length)))));
+  },
+  outcomes(project_id, host, data) {
+    host.appendChild(el('h2', {}, `Outcomes (${data.outcomes.length}) `,
+      el('button', { onClick: () => openOutcomeForm(project_id) }, '+ Add Outcome')));
+    host.appendChild(el('div', { id: 'outcome-form-host' }));
+    if (!data.outcomes.length) { host.appendChild(el('p', { class: 'muted' }, 'No outcomes yet.')); return; }
+    host.appendChild(el('div', { class: 'table-wrap' }, el('table', {},
+      el('thead', {}, el('tr', {}, el('th', {}, 'Title'), el('th', {}, 'Status'), el('th', {}, 'Priority'), el('th', {}, 'Created'))),
+      el('tbody', {}, ...data.outcomes.map(g => el('tr', {}, el('td', {}, g.title), el('td', {}, pill(g.status)),
+        el('td', {}, g.priority), el('td', { class: 'muted' }, fmtTime(g.created_at))))))));
+  },
+  tasks(project_id, host, data) {
+    host.appendChild(el('h2', {}, `Tasks (${data.tasks.length}) `,
+      el('button', { class: 'secondary', onClick: () => openTaskForm(project_id) }, '+ Add Task')));
+    host.appendChild(el('div', { id: 'task-form-host' }));
+    if (!data.tasks.length) { host.appendChild(el('p', { class: 'muted' }, 'No tasks yet — they appear after an outcome plan is approved.')); return; }
+    host.appendChild(el('div', { class: 'table-wrap' }, el('table', {},
+      el('thead', {}, el('tr', {}, el('th', {}, 'Title'), el('th', {}, 'Type'), el('th', {}, 'Status'), el('th', {}, 'Branch'), el('th', {}, 'Agent'), el('th', {}, 'Created'))),
+      el('tbody', {}, ...data.tasks.map(t => el('tr', {},
+        el('td', {}, el('a', { href: `#/tasks/${t.id}` }, t.title)), el('td', {}, t.type), el('td', {}, pill(t.status)),
+        el('td', {}, t.branch_name || '—'), el('td', { class: 'muted' }, t.assigned_agent_id ? t.assigned_agent_id.slice(-6) : '—'),
+        el('td', { class: 'muted' }, fmtTime(t.created_at))))))));
+  },
+  async documents(project_id, host) {
+    host.appendChild(el('h2', {}, 'Documents ', el('button', { onClick: () => openDocForm(project_id, null, refresh) }, '+ Add')));
+    const list = el('div', {}); host.appendChild(list);
+    async function refresh() {
+      list.innerHTML = '';
+      let docs = []; try { docs = (await api(`/documents?project_id=${project_id}`)).items || []; } catch (e) {}
+      if (!docs.length) list.appendChild(el('div', { class: 'muted' }, 'No documents yet.'));
       for (const d of docs) {
         const isRepo = d.source === 'repo';
-        const titleNode = isRepo
-          ? el('span', {}, d.repo_path || d.title,
-              el('span', { class: 'muted', style: 'margin-left:6px;font-size:11px;' }, '[repo]'))
-          : el('a', { href: '#', onClick: (e) => { e.preventDefault(); openDocForm(project_id, d, refreshDocs); } }, d.title);
-        const row = el('div', { style: 'margin:6px 0;' },
-          el('div', { style: 'display:flex;gap:8px;align-items:center;' },
-            titleNode,
-            isRepo ? null
-              : el('button', { class: 'secondary', onClick: async () => { await api(`/documents/${d.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshDocs(); } }, 'Delete')),
+        list.appendChild(el('div', { class: 'card' },
+          el('div', { class: 'card-row' },
+            isRepo ? el('span', {}, (d.repo_path || d.title), el('span', { class: 'muted', style: 'margin-left:6px;font-size:11px;' }, '[repo]'))
+                   : el('a', { href: '#', onClick: (e) => { e.preventDefault(); openDocForm(project_id, d, refresh); } }, d.title),
+            el('span', { class: 'grow' }),
+            isRepo ? null : el('button', { class: 'secondary', onClick: async () => { await api(`/documents/${d.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refresh(); } }, 'Delete')),
           el('div', { class: 'muted', style: 'font-size:12px;' }, d.purpose || '(indexing…)'),
-          (d.headings && d.headings.length)
-            ? el('div', { class: 'muted', style: 'font-size:11px;' }, 'sections: ' + d.headings.join(', '))
-            : null);
-        host.appendChild(row);
+          (d.headings && d.headings.length) ? el('div', { class: 'muted', style: 'font-size:11px;' }, 'sections: ' + d.headings.join(', ')) : null));
       }
-    };
-    await refreshDocs();
-  }
-
-  // ---- GitHub ----------------------------------------------------------
-  {
-    const host = el('div', {});
-    content.appendChild(el('div', { class: 'card' }, el('h3', {}, 'GitHub'), host));
-    const refreshRepos = async () => {
-      host.innerHTML = '';
-      let repos = [];
-      try { repos = (await api(`/projects/${project_id}/repos`)).items || []; } catch (e) {}
-      if (!repos.length) host.appendChild(el('div', { class: 'muted' }, 'No repository connected (local-only git is used).'));
-      for (const r of repos) host.appendChild(el('div', { style: 'margin:3px 0;' },
-        el('span', {}, `${r.name}: ${r.url}`),
-        r.auth_secret_name ? el('span', { class: 'muted', style: 'font-size:11px;' }, ` · auth: ${r.auth_secret_name}`) : null,
-        r.start_command ? el('span', { class: 'muted', style: 'font-size:11px;' }, ` · start: ${r.start_command}`) : null,
-        el('button', { class: 'secondary', style: 'margin-left:8px;', onClick: async () => {
-            const sc = prompt('Start command for the app preview ($PORT is the assigned port):', r.start_command || '');
-            if (sc === null) return;
-            await api(`/repos/${r.id}`, { method: 'PATCH', body: { start_command: sc.trim() } });
-            toast('Saved', 'success'); refreshRepos(); } }, 'Set start cmd'),
-        el('button', { class: 'secondary', style: 'margin-left:4px;', onClick: async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); toast('Removed', 'success'); refreshRepos(); } }, 'Remove')));
-      const f = el('form', { style: 'margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;',
+    }
+    await refresh();
+  },
+  async github(project_id, host) {
+    host.appendChild(el('h2', {}, 'GitHub'));
+    const list = el('div', {}); host.appendChild(list);
+    async function refresh() {
+      list.innerHTML = '';
+      let repos = []; try { repos = (await api(`/projects/${project_id}/repos`)).items || []; } catch (e) {}
+      if (!repos.length) list.appendChild(el('div', { class: 'muted' }, 'No repository connected (local-only git is used).'));
+      for (const r of repos) list.appendChild(el('div', { class: 'card' },
+        el('div', {}, el('strong', {}, r.name), ': ', el('span', { class: 'muted' }, r.url)),
+        r.start_command ? el('div', { class: 'muted', style: 'font-size:11px;' }, 'start: ' + r.start_command) : null,
+        el('div', { class: 'card-row', style: 'margin-top:6px;' },
+          el('button', { class: 'secondary', onClick: async () => { const sc = prompt('Start command ($PORT = assigned port):', r.start_command || ''); if (sc === null) return; await api(`/repos/${r.id}`, { method: 'PATCH', body: { start_command: sc.trim() } }); toast('Saved', 'success'); refresh(); } }, 'Set start cmd'),
+          el('button', { class: 'secondary', onClick: async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); toast('Removed', 'success'); refresh(); } }, 'Remove'))));
+      list.appendChild(el('form', { class: 'card', style: 'display:flex;flex-wrap:wrap;gap:6px;',
         onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
-          try { await api(`/projects/${project_id}/repos`, { method: 'POST', body: {
-              name: fm.rname.value.trim() || 'origin', url: fm.url.value.trim(),
-              default_branch: fm.branch.value.trim() || 'main',
-              auth_secret_name: fm.secret.value.trim() || null,
-              start_command: fm.start_command.value.trim() || null } });
-            toast('Repository connected', 'success'); fm.reset(); refreshRepos(); }
+          try { await api(`/projects/${project_id}/repos`, { method: 'POST', body: { name: fm.rname.value.trim() || 'origin', url: fm.url.value.trim(), default_branch: fm.branch.value.trim() || 'main', auth_secret_name: fm.secret.value.trim() || null, start_command: fm.start_command.value.trim() || null } }); toast('Connected', 'success'); fm.reset(); refresh(); }
           catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
         el('input', { name: 'rname', placeholder: 'name (origin)', style: 'width:110px;' }),
-        el('input', { name: 'url', placeholder: 'https://github.com/you/repo.git', required: true, style: 'flex:1;min-width:220px;' }),
+        el('input', { name: 'url', placeholder: 'https://github.com/you/repo.git', required: true, style: 'flex:1;min-width:200px;' }),
         el('input', { name: 'branch', placeholder: 'main', style: 'width:80px;' }),
-        el('input', { name: 'secret', placeholder: 'auth secret name (optional)', style: 'width:170px;' }),
-        el('input', { name: 'start_command', placeholder: 'start command e.g. uvicorn main:app --host 0.0.0.0 --port $PORT', style: 'flex:1;min-width:260px;' }),
-        el('button', { type: 'submit' }, 'Connect'));
-      host.appendChild(f);
-    };
-    await refreshRepos();
-  }
-
-  // ---- App preview (run the app on an agent port, click to test) ------
-  {
-    const host = el('div', {});
-    content.appendChild(el('div', { class: 'card' },
-      el('h3', {}, 'App preview ',
-        el('button', { onClick: async () => {
-            try { await api(`/projects/${project_id}/previews/launch`, { method: 'POST' });
-              toast('Launching… (the agent will start it shortly)', 'success'); refreshPreviews(); }
-            catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } }, 'Launch app')),
-      host));
-    var refreshPreviews = async () => {
-      host.innerHTML = '';
-      let items = [];
-      try { items = (await api(`/projects/${project_id}/previews`)).items || []; } catch (e) {}
+        el('input', { name: 'secret', placeholder: 'auth secret (optional)', style: 'width:150px;' }),
+        el('input', { name: 'start_command', placeholder: 'start cmd e.g. uvicorn main:app --host 0.0.0.0 --port $PORT', style: 'flex:1;min-width:240px;' }),
+        el('button', { type: 'submit' }, 'Connect')));
+    }
+    await refresh();
+  },
+  async preview(project_id, host) {
+    host.appendChild(el('h2', {}, 'App preview ',
+      el('button', { onClick: async () => { try { await api(`/projects/${project_id}/previews/launch`, { method: 'POST' }); toast('Launching…', 'success'); refresh(); } catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } }, 'Launch app')));
+    const list = el('div', {}); host.appendChild(list);
+    async function refresh() {
+      list.innerHTML = '';
+      let items = []; try { items = (await api(`/projects/${project_id}/previews`)).items || []; } catch (e) {}
       const live = items.filter(p => p.status === 'starting' || p.status === 'running');
-      if (!live.length) {
-        host.appendChild(el('div', { class: 'muted' },
-          'No app running. Set a start command on the repo above, then Launch.'));
-      }
+      if (!live.length) list.appendChild(el('div', { class: 'muted' }, 'No app running. Set a start command on the repo, then Launch.'));
       for (const p of live) {
-        // Build the link from THIS browser's host so it works locally or over LAN.
         const url = `${location.protocol}//${location.hostname}:${p.port}`;
-        host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:4px 0;' },
-          pill(p.status),
-          p.status === 'running'
-            ? el('a', { href: url, target: '_blank' }, `Open app ↗ (${url})`)
-            : el('span', { class: 'muted' }, `starting on port ${p.port}…`),
-          el('button', { class: 'secondary', onClick: async () => {
-              await api(`/previews/${p.id}/stop`, { method: 'POST' });
-              toast('Stopping', 'success'); refreshPreviews(); } }, 'Stop')));
+        list.appendChild(el('div', { class: 'card-row', style: 'margin:4px 0;' }, pill(p.status),
+          p.status === 'running' ? el('a', { href: url, target: '_blank' }, `Open app ↗ (${url})`) : el('span', { class: 'muted' }, `starting on port ${p.port}…`),
+          el('button', { class: 'secondary', onClick: async () => { await api(`/previews/${p.id}/stop`, { method: 'POST' }); toast('Stopping', 'success'); refresh(); } }, 'Stop')));
       }
       const failed = items.find(p => p.status === 'failed');
-      if (failed && failed.detail) host.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:4px;' },
-        `last failure: ${failed.detail.slice(0, 200)}`));
-    };
-    await refreshPreviews();
-  }
-
-  // ---- Secrets (inherited globals + project-scoped) -------------------
-  {
-    const host = el('div', {});
-    content.appendChild(el('div', { class: 'card' }, el('h3', {}, 'Secrets'), host));
-    const refreshSec = async () => {
-      host.innerHTML = '';
-      let secrets = [];
-      try { secrets = (await api(`/secrets?project_id=${project_id}`)).items || []; } catch (e) {}
+      if (failed && failed.detail) list.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:4px;' }, 'last failure: ' + failed.detail.slice(0, 200)));
+    }
+    await refresh();
+  },
+  async secrets(project_id, host) {
+    host.appendChild(el('h2', {}, 'Secrets'));
+    const list = el('div', {}); host.appendChild(list);
+    async function refresh() {
+      list.innerHTML = '';
+      let secrets = []; try { secrets = (await api(`/secrets?project_id=${project_id}`)).items || []; } catch (e) {}
       const inh = secrets.filter(s => s.inherited), own = secrets.filter(s => !s.inherited);
-      host.appendChild(el('div', { class: 'muted', style: 'font-size:12px;' }, `Inherited from top level (${inh.length}):`));
-      const inhHost = el('div', { class: 'tool-list' });
-      if (inh.length) inh.forEach(s => inhHost.appendChild(el('span', { class: 'pill' }, s.name)));
-      else inhHost.appendChild(el('span', { class: 'muted' }, 'none'));
-      host.appendChild(inhHost);
-      host.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:8px;' }, 'Scoped to this project:'));
-      if (!own.length) host.appendChild(el('div', { class: 'muted' }, 'none'));
-      for (const s of own) host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:2px 0;' },
-        el('span', {}, s.name),
-        el('button', { class: 'secondary', onClick: async () => { await api(`/secrets/${s.name}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshSec(); } }, 'Delete')));
-      const f = el('form', { style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;',
+      list.appendChild(el('div', { class: 'muted', style: 'font-size:12px;' }, `Inherited (${inh.length}):`));
+      const ih = el('div', { class: 'card-row' });
+      inh.length ? inh.forEach(s => ih.appendChild(el('span', { class: 'pill' }, s.name))) : ih.appendChild(el('span', { class: 'muted' }, 'none'));
+      list.appendChild(ih);
+      list.appendChild(el('div', { class: 'muted', style: 'font-size:12px;margin-top:8px;' }, 'Scoped to this project:'));
+      if (!own.length) list.appendChild(el('div', { class: 'muted' }, 'none'));
+      for (const s of own) list.appendChild(el('div', { class: 'card-row', style: 'margin:2px 0;' }, el('span', {}, s.name),
+        el('button', { class: 'secondary', onClick: async () => { await api(`/secrets/${s.name}`, { method: 'DELETE' }); toast('Deleted', 'success'); refresh(); } }, 'Delete')));
+      list.appendChild(el('form', { class: 'card', style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;',
         onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
-          try { await api('/secrets', { method: 'POST', body: {
-              name: fm.sname.value.trim(), value: fm.sval.value,
-              scope: `project:${project_id}`, description: 'project-scoped' } });
-            toast('Secret added', 'success'); fm.reset(); refreshSec(); }
+          try { await api('/secrets', { method: 'POST', body: { name: fm.sname.value.trim(), value: fm.sval.value, scope: `project:${project_id}`, description: 'project-scoped' } }); toast('Added', 'success'); fm.reset(); refresh(); }
           catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
         el('input', { name: 'sname', placeholder: 'NAME', required: true, style: 'width:150px;' }),
         el('input', { name: 'sval', type: 'password', placeholder: 'value', required: true, style: 'flex:1;min-width:150px;' }),
-        el('button', { type: 'submit' }, 'Add scoped secret'));
-      host.appendChild(f);
-    };
-    await refreshSec();
-  }
-
-  // ---- Scheduled tasks (cron -> backlog) ------------------------------
-  {
-    const host = el('div', {});
-    content.appendChild(el('div', { class: 'card' }, el('h3', {}, 'Scheduled tasks'), host));
-    const refreshSched = async () => {
-      host.innerHTML = '';
-      let items = [];
-      try { items = (await api(`/scheduled?project_id=${project_id}`)).items || []; } catch (e) {}
-      if (!items.length) host.appendChild(el('div', { class: 'muted' }, 'No scheduled tasks. Add a cron to queue tasks automatically.'));
-      for (const s of items) host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:3px 0;flex-wrap:wrap;' },
+        el('button', { type: 'submit' }, 'Add scoped secret')));
+    }
+    await refresh();
+  },
+  async scheduled(project_id, host) {
+    host.appendChild(el('h2', {}, 'Scheduled tasks'));
+    const list = el('div', {}); host.appendChild(list);
+    async function refresh() {
+      list.innerHTML = '';
+      let items = []; try { items = (await api(`/scheduled?project_id=${project_id}`)).items || []; } catch (e) {}
+      if (!items.length) list.appendChild(el('div', { class: 'muted' }, 'No scheduled tasks.'));
+      for (const s of items) list.appendChild(el('div', { class: 'card-row', style: 'margin:3px 0;flex-wrap:wrap;' },
         el('strong', {}, s.name), el('code', {}, s.cron),
         el('span', { class: 'muted', style: 'font-size:11px;' }, `${s.task_type} · next ${fmtTime(s.next_run_at)}`),
-        el('button', { class: 'secondary', onClick: async () => { await api(`/scheduled/${s.id}/run-now`, { method: 'POST' }); toast('Queued now', 'success'); } }, 'Run now'),
-        el('button', { class: 'secondary', onClick: async () => { await api(`/scheduled/${s.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshSched(); } }, 'Delete')));
-      const f = el('form', { style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;',
+        el('button', { class: 'secondary', onClick: async () => { await api(`/scheduled/${s.id}/run-now`, { method: 'POST' }); toast('Queued', 'success'); } }, 'Run now'),
+        el('button', { class: 'secondary', onClick: async () => { await api(`/scheduled/${s.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refresh(); } }, 'Delete')));
+      list.appendChild(el('form', { class: 'card', style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;',
         onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
-          try { await api('/scheduled', { method: 'POST', body: {
-              project_id, name: fm.nm.value.trim() || fm.title.value.trim(),
-              cron: fm.cron.value.trim(), title: fm.title.value.trim(),
-              description_md: fm.desc.value, task_type: fm.ttype.value } });
-            toast('Scheduled', 'success'); fm.reset(); refreshSched(); }
+          try { await api('/scheduled', { method: 'POST', body: { project_id, name: fm.nm.value.trim() || fm.title.value.trim(), cron: fm.cron.value.trim(), title: fm.title.value.trim(), description_md: fm.desc.value, task_type: fm.ttype.value } }); toast('Scheduled', 'success'); fm.reset(); refresh(); }
           catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
         el('input', { name: 'nm', placeholder: 'name', style: 'width:110px;' }),
-        el('input', { name: 'cron', placeholder: '0 2 * * *', required: true, style: 'width:120px;' }),
-        el('input', { name: 'title', placeholder: 'task title', required: true, style: 'flex:1;min-width:150px;' }),
-        el('select', { name: 'ttype' }, el('option', { value: 'implement' }, 'implement'),
-          el('option', { value: 'review' }, 'review'), el('option', { value: 'plan' }, 'plan')),
-        el('input', { name: 'desc', placeholder: 'description', style: 'flex:1;min-width:150px;' }),
-        el('button', { type: 'submit' }, 'Add'));
-      host.appendChild(f);
-    };
-    await refreshSched();
-  }
-
-  // ---- Required tools (populated by the planner; agent installs at claim) ---
-  const tools = p.tools || {};
-  const pyPkgs = tools.python_packages || [];
-  const nodePkgs = tools.node_packages || [];
-  if (pyPkgs.length || nodePkgs.length) {
-    const card = el('div', { class: 'card' }, el('h3', {}, 'Required tools'));
-    if (pyPkgs.length) {
-      card.appendChild(el('div', { class: 'muted', style: 'margin-top:4px;' }, 'Python:'));
-      const list = el('div', { class: 'tool-list' });
-      pyPkgs.forEach(pkg => list.appendChild(el('span', { class: 'pill' }, pkg)));
-      card.appendChild(list);
+        el('input', { name: 'cron', placeholder: '0 2 * * *', required: true, style: 'width:110px;' }),
+        el('input', { name: 'title', placeholder: 'task title', required: true, style: 'flex:1;min-width:140px;' }),
+        el('select', { name: 'ttype' }, el('option', { value: 'implement' }, 'implement'), el('option', { value: 'review' }, 'review'), el('option', { value: 'plan' }, 'plan')),
+        el('input', { name: 'desc', placeholder: 'description', style: 'flex:1;min-width:140px;' }),
+        el('button', { type: 'submit' }, 'Add')));
     }
-    if (nodePkgs.length) {
-      card.appendChild(el('div', { class: 'muted', style: 'margin-top:8px;' }, 'Node:'));
-      const list = el('div', { class: 'tool-list' });
-      nodePkgs.forEach(pkg => list.appendChild(el('span', { class: 'pill' }, pkg)));
-      card.appendChild(list);
-    }
-    card.appendChild(el('div', { class: 'muted', style: 'margin-top:6px;font-size:11px;' },
-      'Agents pip/npm-install anything missing before each task runs.'));
-    content.appendChild(card);
-  }
-
-  // ---- Access (which agents may pick up this project's tasks) ---------
-  const accessCard = el('div', { class: 'card' },
-    el('h3', {}, 'Access'),
-    el('div', { class: 'muted', style: 'margin-bottom:6px;font-size:12px;' },
+    await refresh();
+  },
+  async access(project_id, host) {
+    host.appendChild(el('h2', {}, 'Agents & Access'));
+    host.appendChild(el('div', { class: 'muted', style: 'margin-bottom:6px;font-size:12px;' },
       "Which agents may pick up this project's tasks. No grants = nobody picks it up."));
-  const grantsHost = el('div', {});
-  accessCard.appendChild(grantsHost);
-  content.appendChild(accessCard);
-
-  const renderGrants = async () => {
-    grantsHost.innerHTML = '';
-    let grants = [], agents = [];
-    try { grants = (await api(`/projects/${project_id}/agents`)).items || []; } catch (e) { /* */ }
-    try { agents = (await api('/agents')).items || []; } catch (e) { /* */ }
-    if (!grants.length) grantsHost.appendChild(el('div', { class: 'muted' }, 'No agents granted.'));
-    const roleLabel = { any: 'everything', plan: 'planning', implement: 'coding', review: 'reviewing' };
-    for (const g of grants) {
-      const label = g.grantee_type === 'kind'
-        ? (g.grantee === 'worker' ? 'OrchestrAi worker (all instances)' : `kind: ${g.grantee}`)
-        : (g.agent_name || g.grantee);
-      grantsHost.appendChild(el('div', { style: 'display:flex;align-items:center;gap:8px;margin:3px 0;' },
-        el('span', {}, label),
-        el('span', { class: 'pill' }, roleLabel[g.role] || g.role || 'everything'),
-        (g.grantee_type === 'agent' && g.agent_status) ? pill(g.agent_status) : null,
-        el('button', {
-          onClick: async () => {
-            await api(`/projects/${project_id}/agents`, {
-              method: 'DELETE', body: { grantee_type: g.grantee_type, grantee: g.grantee } });
-            toast('Access revoked', 'success'); renderGrants();
-          } }, 'Revoke')));
+    const list = el('div', {}); host.appendChild(list);
+    async function refresh() {
+      list.innerHTML = '';
+      let grants = [], agents = [];
+      try { grants = (await api(`/projects/${project_id}/agents`)).items || []; } catch (e) {}
+      try { agents = (await api('/agents')).items || []; } catch (e) {}
+      if (!grants.length) list.appendChild(el('div', { class: 'muted' }, 'No agents granted.'));
+      const roleLabel = { any: 'everything', plan: 'planning', implement: 'coding', review: 'reviewing' };
+      for (const g of grants) {
+        const label = g.grantee_type === 'kind' ? (g.grantee === 'worker' ? 'OrchestrAi worker (all)' : `kind: ${g.grantee}`) : (g.agent_name || g.grantee);
+        list.appendChild(el('div', { class: 'card-row', style: 'margin:3px 0;' }, el('span', {}, label),
+          el('span', { class: 'pill' }, roleLabel[g.role] || g.role || 'everything'),
+          (g.grantee_type === 'agent' && g.agent_status) ? pill(g.agent_status) : null,
+          el('button', { class: 'secondary', onClick: async () => { await api(`/projects/${project_id}/agents`, { method: 'DELETE', body: { grantee_type: g.grantee_type, grantee: g.grantee } }); toast('Revoked', 'success'); refresh(); } }, 'Revoke')));
+      }
+      const opts = [el('option', { value: 'kind:worker' }, 'OrchestrAi worker')];
+      for (const a of agents.filter(a => a.kind === 'external')) opts.push(el('option', { value: `agent:${a.id}` }, `${a.name} (external)`));
+      const addSel = el('select', { style: 'width:auto;' }, ...opts);
+      const roleSel = el('select', { style: 'width:auto;' }, el('option', { value: 'any' }, 'do everything'), el('option', { value: 'plan' }, 'planning only'), el('option', { value: 'implement' }, 'coding only'), el('option', { value: 'review' }, 'reviewing only'));
+      list.appendChild(el('div', { class: 'card-row', style: 'margin-top:8px;' }, addSel, el('span', { class: 'muted' }, 'role:'), roleSel,
+        el('button', { onClick: async () => { const v = addSel.value; const i = v.indexOf(':'); await api(`/projects/${project_id}/agents`, { method: 'POST', body: { grantee_type: v.slice(0, i), grantee: v.slice(i + 1), role: roleSel.value } }); toast('Granted', 'success'); refresh(); } }, '+ Grant access')));
     }
-    const opts = [el('option', { value: 'kind:worker' }, 'OrchestrAi worker')];
-    for (const a of agents.filter((a) => a.kind === 'external')) {
-      opts.push(el('option', { value: `agent:${a.id}` }, `${a.name} (external)`));
-    }
-    const addSel = el('select', {}, ...opts);
-    const roleSel = el('select', {},
-      el('option', { value: 'any' }, 'do everything'),
-      el('option', { value: 'plan' }, 'planning only'),
-      el('option', { value: 'implement' }, 'coding only'),
-      el('option', { value: 'review' }, 'reviewing only'));
-    grantsHost.appendChild(el('div', { style: 'margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;' },
-      addSel, el('span', { class: 'muted' }, 'role:'), roleSel,
-      el('button', {
-        onClick: async () => {
-          const v = addSel.value; const i = v.indexOf(':');
-          await api(`/projects/${project_id}/agents`, {
-            method: 'POST', body: { grantee_type: v.slice(0, i), grantee: v.slice(i + 1), role: roleSel.value } });
-          toast('Access granted', 'success'); renderGrants();
-        } }, '+ Grant access')));
-  };
-  await renderGrants();
-
-  // ---- Outcomes (the most important entry point — keep at top) -----------
-  content.appendChild(el('h2', {}, `Outcomes (${data.outcomes.length})`,
-    el('button', { style: 'margin-left:12px;',
-      onClick: () => openOutcomeForm(project_id) }, '+ Add Outcome')));
-  content.appendChild(el('div', { id: 'outcome-form-host' }));
-  if (data.outcomes.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No goals yet. Click + Add Outcome to give the agent something to work on.'));
-  } else {
-    const tbl = el('table', {},
-      el('thead', {}, el('tr', {},
-        el('th', {}, 'Title'), el('th', {}, 'Status'),
-        el('th', {}, 'Priority'), el('th', {}, 'Created'))),
-      el('tbody', {}, ...data.outcomes.map(g => el('tr', {},
-        el('td', {}, g.title), el('td', {}, pill(g.status)),
-        el('td', {}, g.priority),
-        el('td', { class: 'muted' }, fmtTime(g.created_at))))));
-    content.appendChild(tbl);
-  }
-
-  // ---- Repos ----------------------------------------------------------
-  content.appendChild(el('h2', {}, `Repos (${data.repos.length})`,
-    el('button', { class: 'secondary', style: 'margin-left:12px;',
-      onClick: () => openRepoForm(project_id) }, '+ Add Repo')));
-  content.appendChild(el('div', { id: 'repo-form-host' }));
-  if (data.repos.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No repos yet.'));
-  } else {
-    const tbl = el('table', {},
-      el('thead', {}, el('tr', {},
-        el('th', {}, 'Name'), el('th', {}, 'Role'),
-        el('th', {}, 'URL'), el('th', {}, 'Branch'))),
-      el('tbody', {}, ...data.repos.map(r => el('tr', {},
-        el('td', {}, r.name), el('td', {}, r.role || '—'),
-        el('td', { class: 'muted' }, r.url),
-        el('td', {}, r.default_branch)))));
-    content.appendChild(tbl);
-  }
-
-  // ---- Tasks -----------------------------------------------------------
-  content.appendChild(el('h2', {}, `Tasks (${data.tasks.length})`,
-    el('button', { class: 'secondary', style: 'margin-left:12px;',
-      onClick: () => openTaskForm(project_id) }, '+ Add Task (manual)')));
-  content.appendChild(el('div', { id: 'task-form-host' }));
-  if (data.tasks.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No tasks yet. Tasks usually appear automatically after you add an outcome and approve its plan.'));
-  } else {
-    const tbl = el('table', {},
-      el('thead', {}, el('tr', {},
-        el('th', {}, 'Title'), el('th', {}, 'Type'),
-        el('th', {}, 'Status'), el('th', {}, 'Branch'),
-        el('th', {}, 'Agent'), el('th', {}, 'Created'))),
-      el('tbody', {}, ...data.tasks.map(t => el('tr', {},
-        el('td', {}, el('a', { href: `#/tasks/${t.id}` }, t.title)),
-        el('td', {}, t.type),
-        el('td', {}, pill(t.status)),
-        el('td', {}, t.branch_name || '—'),
-        el('td', { class: 'muted' }, t.assigned_agent_id ? t.assigned_agent_id.slice(-6) : '—'),
-        el('td', { class: 'muted' }, fmtTime(t.created_at))))));
-    content.appendChild(tbl);
-  }
-});
+    await refresh();
+  },
+};
 
 function openOutcomeForm(project_id) {
   const host = $('#outcome-form-host');
@@ -1320,6 +1216,49 @@ function downloadText(filename, text, mime = 'application/json') {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
+function openAddAgentModal() {
+  const origin = location.origin;
+  const overlay = el('div', { class: 'overlay', onClick: (e) => { if (e.target === overlay) overlay.remove(); } });
+  const body = el('div', {});
+  overlay.appendChild(el('div', { class: 'modal' }, el('h3', {}, 'Add an agent'), body));
+  document.body.appendChild(overlay);
+
+  function step1() {
+    body.innerHTML = '';
+    body.appendChild(el('p', { class: 'muted' },
+      "Register an agent (e.g. a Claude Code instance). Name it, then you'll get a token + mcp.json to drop into your project."));
+    body.appendChild(el('form', {
+      onSubmit: async (e) => { e.preventDefault();
+        const name = e.target.aname.value.trim(); if (!name) return;
+        let reg;
+        try { reg = await api('/agents/register', { method: 'POST',
+          body: { name, kind: 'external', org_id: currentOrg() || undefined } }); }
+        catch (err) { toast('Register failed: ' + err.message, 'error', 6000); return; }
+        step2(name, reg.lease_token); } },
+      el('input', { name: 'aname', placeholder: 'e.g. Claude on my-laptop', required: true, style: 'margin:8px 0;' }),
+      el('div', { class: 'card-row' },
+        el('button', { type: 'submit' }, 'Create agent'),
+        el('button', { type: 'button', class: 'secondary', onClick: () => overlay.remove() }, 'Cancel'))));
+  }
+  function step2(name, token) {
+    body.innerHTML = '';
+    const cmd = `claude mcp add --transport http --header "Authorization: Bearer ${token}" orchestrai ${origin}/mcp`;
+    const json = mcpJsonForAgent(origin, token);
+    body.appendChild(el('p', {}, '✅ Created ', el('strong', {}, name), '. The token is shown ',
+      el('strong', {}, 'once'), ' — save it now.'));
+    body.appendChild(el('h3', {}, 'CLI command'));
+    body.appendChild(el('div', { class: 'code-block' }, cmd));
+    body.appendChild(el('button', { class: 'secondary', onClick: () => copyText(cmd, 'Command copied') }, 'Copy command'));
+    body.appendChild(el('h3', {}, 'mcp.json'));
+    body.appendChild(el('div', { class: 'code-block' }, json));
+    body.appendChild(el('div', { class: 'card-row', style: 'margin-top:8px;' },
+      el('button', { onClick: () => downloadText('.mcp.json', json) }, 'Download .mcp.json'),
+      el('button', { class: 'secondary', onClick: () => copyText(json, 'mcp.json copied') }, 'Copy mcp.json'),
+      el('button', { class: 'secondary', onClick: () => { overlay.remove(); render(); } }, 'Done')));
+  }
+  step1();
+}
+
 route('/connect', async () => {
   setActiveNav('connect');
   setBreadcrumb([{ label: 'Connect an agent' }]);
@@ -1412,6 +1351,126 @@ route('/connect', async () => {
   renderSnippet();
   sel.onchange = renderSnippet;
   $('#copy-md').onclick = () => copyText($('#claude-md').textContent, 'Snippet copied');
+});
+
+route('/questions', async () => {
+  setActiveNav('questions');
+  setBreadcrumb([{ label: 'Questions' }]);
+  const content = $('#content'); content.innerHTML = '';
+  content.appendChild(el('h1', {}, 'Pending questions'));
+  let items = [];
+  try { items = (await api('/questions?status=pending&limit=200')).items || []; } catch (e) {}
+  if (!items.length) { content.appendChild(el('p', { class: 'muted' }, 'No pending questions. 🎉')); return; }
+  for (const q of items) content.appendChild(el('div', { class: 'card' },
+    el('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;' }, q.kind),
+    el('div', { style: 'margin:4px 0;' }, q.prompt_md || ''),
+    q.task_id ? el('a', { href: `#/tasks/${q.task_id}` }, q.task_title || ('task ' + q.task_id.slice(-6))) : null));
+});
+
+route('/settings', async () => {
+  setActiveNav('settings');
+  setBreadcrumb([{ label: 'Settings' }]);
+  const content = $('#content'); content.innerHTML = '';
+  content.appendChild(el('h1', {}, 'Settings'));
+  content.appendChild(el('h2', {}, 'Organizations ',
+    el('button', { onClick: openCreateOrgModal }, '+ New organization')));
+  const orgsHost = el('div', {}); content.appendChild(orgsHost);
+
+  async function upgrade(orgId, plan) {
+    try { const r = await api('/billing/checkout', { method: 'POST', body: { org_id: orgId, plan } });
+      if (r.url) location.href = r.url; } catch (e) { toast('Billing: ' + e.message, 'error', 7000); }
+  }
+  async function portal(orgId) {
+    try { const r = await api('/billing/portal', { method: 'POST', body: { org_id: orgId } });
+      if (r.url) location.href = r.url; } catch (e) { toast('Billing: ' + e.message, 'error', 7000); }
+  }
+  async function renderOrgs() {
+    orgsHost.innerHTML = '';
+    let orgs = [];
+    try { orgs = (await api('/orgs')).items || []; } catch (e) {}
+    MY_ORGS = orgs;
+    if (!orgs.length) orgsHost.appendChild(el('p', { class: 'muted' }, 'No organizations yet. Create one or accept an invite.'));
+    for (const o of orgs) {
+      const card = el('div', { class: 'card' });
+      card.appendChild(el('div', { class: 'card-row' },
+        el('strong', {}, o.name), el('span', { class: 'pill' }, o.plan),
+        el('span', { class: 'muted', style: 'font-size:12px;' }, o.role),
+        o.id === currentOrg()
+          ? el('span', { class: 'pill pill-active' }, 'current')
+          : el('button', { class: 'secondary', onClick: () => { setOrg(o.id); renderTopbar(); renderOrgs(); } }, 'Make current')));
+      const detail = el('div', {}); card.appendChild(detail);
+      try {
+        const d = await api(`/orgs/${o.id}`);
+        detail.appendChild(el('h3', {}, 'Members'));
+        for (const m of d.members) detail.appendChild(el('div', { class: 'card-row', style: 'margin:2px 0;' },
+          el('span', {}, m.name || m.email), el('span', { class: 'pill' }, m.role),
+          (d.my_role !== 'member' && m.role !== 'owner')
+            ? el('button', { class: 'secondary', onClick: async () => { await api(`/orgs/${o.id}/members/${m.user_id}`, { method: 'DELETE' }); toast('Removed', 'success'); renderOrgs(); } }, 'Remove') : null));
+        detail.appendChild(el('h3', {}, 'Invitations'));
+        if (d.limits.can_invite) {
+          for (const inv of d.invitations) detail.appendChild(el('div', { class: 'card-row', style: 'margin:2px 0;' },
+            el('span', {}, inv.email), el('span', { class: 'pill' }, inv.role),
+            el('button', { class: 'secondary', onClick: () => copyText(inv.link, 'Invite link copied') }, 'Copy link'),
+            el('button', { class: 'secondary', onClick: async () => { await api(`/orgs/${o.id}/invitations/${inv.id}`, { method: 'DELETE' }); toast('Revoked', 'success'); renderOrgs(); } }, 'Revoke')));
+          if (d.my_role !== 'member') detail.appendChild(el('form', { class: 'card-row', style: 'margin-top:6px;',
+            onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
+              try { const r = await api(`/orgs/${o.id}/invitations`, { method: 'POST', body: { email: fm.iemail.value.trim(), role: fm.irole.value } });
+                toast('Invited — link copied', 'success'); copyText(r.link, 'Invite link copied'); renderOrgs(); }
+              catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
+            el('input', { name: 'iemail', type: 'email', placeholder: 'email to invite', required: true, style: 'flex:1;min-width:160px;' }),
+            el('select', { name: 'irole', style: 'width:auto;' }, el('option', { value: 'member' }, 'member'), el('option', { value: 'admin' }, 'admin')),
+            el('button', { type: 'submit' }, 'Invite')));
+        } else {
+          detail.appendChild(el('div', { class: 'muted', style: 'font-size:12px;' }, 'Inviting members requires a paid plan.'));
+        }
+        detail.appendChild(el('h3', {}, 'Plan & billing'));
+        detail.appendChild(el('div', { class: 'muted', style: 'font-size:12px;' },
+          `${o.plan} · projects ${d.usage.projects}${d.limits.projects ? '/' + d.limits.projects : ' (unlimited)'} · agents ${d.usage.agents}`));
+        if (d.my_role === 'owner') {
+          const billing = el('div', { class: 'card-row', style: 'margin-top:6px;' });
+          if (o.plan === 'free') {
+            billing.appendChild(el('button', { onClick: () => upgrade(o.id, 'pro') }, 'Upgrade to Pro ($4.95/mo)'));
+            billing.appendChild(el('button', { onClick: () => upgrade(o.id, 'team') }, 'Upgrade to Team ($19.90/mo)'));
+          } else {
+            billing.appendChild(el('button', { class: 'secondary', onClick: () => portal(o.id) }, 'Manage billing'));
+          }
+          detail.appendChild(billing);
+        }
+      } catch (e) { detail.appendChild(el('div', { class: 'muted' }, 'Could not load org detail.')); }
+      orgsHost.appendChild(card);
+    }
+  }
+  await renderOrgs();
+});
+
+function openCreateOrgModal() {
+  const overlay = el('div', { class: 'overlay', onClick: (e) => { if (e.target === overlay) overlay.remove(); } });
+  overlay.appendChild(el('div', { class: 'modal' }, el('h3', {}, 'New organization'),
+    el('form', { onSubmit: async (e) => { e.preventDefault();
+        const name = e.target.oname.value.trim(); if (!name) return;
+        try { const o = await api('/orgs', { method: 'POST', body: { name } });
+          setOrg(o.id); toast('Organization created', 'success'); overlay.remove();
+          await renderTopbar(); location.hash = '#/settings'; render(); }
+        catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
+      el('input', { name: 'oname', placeholder: 'Organization name', required: true, style: 'margin:8px 0;' }),
+      el('div', { class: 'card-row' }, el('button', { type: 'submit' }, 'Create'),
+        el('button', { type: 'button', class: 'secondary', onClick: () => overlay.remove() }, 'Cancel')))));
+  document.body.appendChild(overlay);
+}
+
+route('/accept-invite/:token', async ({ token }) => {
+  setBreadcrumb([{ label: 'Accept invitation' }]);
+  const content = $('#content'); content.innerHTML = '';
+  let inv;
+  try { inv = await api(`/invitations/${token}`); }
+  catch (e) { content.appendChild(el('div', { class: 'card' }, 'This invitation is not valid or has already been used.')); return; }
+  content.appendChild(el('div', { class: 'card' },
+    el('h1', {}, 'Join ' + inv.org_name),
+    el('p', { class: 'muted' }, `You've been invited as ${inv.role}.`),
+    el('button', { onClick: async () => {
+      try { const r = await api('/invitations/accept', { method: 'POST', body: { token } });
+        setOrg(r.org_id); toast('Joined!', 'success'); await renderTopbar(); location.hash = '#/projects'; }
+      catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } }, 'Accept invitation')));
 });
 
 route('/vault', async () => {
@@ -1536,9 +1595,77 @@ function debouncedRender() {
   }, 400);
 }
 
+// ---- Top bar (logo, Projects dropdown, links, user + org switcher) -------
+async function renderTopbar() {
+  const tb = $('#topbar');
+  if (tb) tb.hidden = false;
+
+  // Projects dropdown
+  const menu = $('#projects-menu');
+  const ddBtn = $('#projects-dd-btn');
+  if (ddBtn) ddBtn.onclick = async (e) => {
+    e.stopPropagation();
+    const open = menu.classList.toggle('open');
+    if (open) {
+      menu.innerHTML = '';
+      menu.appendChild(el('a', { href: '#/projects', onClick: () => menu.classList.remove('open') }, '→ All projects'));
+      menu.appendChild(el('div', { class: 'dd-divider' }));
+      let projs = [];
+      try { projs = (await api('/projects?limit=50')).items || []; } catch (e2) {}
+      if (!projs.length) menu.appendChild(el('div', { class: 'muted', style: 'padding:8px 10px;font-size:12px;' }, 'No projects yet'));
+      for (const p of projs) menu.appendChild(el('a',
+        { href: `#/projects/${p.id}`, onClick: () => menu.classList.remove('open') }, p.name));
+    }
+  };
+
+  // User box (avatar + dropdown: org switcher, settings, sign out)
+  const ub = $('#userbox');
+  ub.innerHTML = '';
+  const u = CURRENT_USER || {};
+  const avatar = u.picture_url
+    ? el('img', { class: 'avatar', src: u.picture_url, alt: u.name || u.email || '' })
+    : el('span', { class: 'avatar' }, (u.name || u.email || '?').slice(0, 1).toUpperCase());
+  const uname = el('span', { class: 'user-name' }, u.name || u.email || '');
+  const uMenu = el('div', { class: 'dd-menu', style: 'right:0;left:auto;' });
+  avatar.onclick = (e) => {
+    e.stopPropagation();
+    const open = uMenu.classList.toggle('open');
+    if (open) {
+      uMenu.innerHTML = '';
+      uMenu.appendChild(el('div', { class: 'muted', style: 'padding:6px 10px;font-size:11px;' },
+        u.email + (u.is_superadmin ? ' · superadmin' : '')));
+      if (MY_ORGS.length > 1) {
+        uMenu.appendChild(el('div', { class: 'dd-divider' }));
+        uMenu.appendChild(el('div', { class: 'muted', style: 'padding:2px 10px;font-size:11px;' }, 'Organization'));
+        for (const o of MY_ORGS) uMenu.appendChild(el('button', {
+          onClick: () => { setOrg(o.id); uMenu.classList.remove('open'); render(); } },
+          (o.id === currentOrg() ? '✓ ' : '  ') + o.name + ` (${o.plan})`));
+      }
+      uMenu.appendChild(el('div', { class: 'dd-divider' }));
+      uMenu.appendChild(el('span', { id: 'health-dot', class: 'muted', style: 'display:block;padding:6px 10px;font-size:11px;' }, '● …'));
+      uMenu.appendChild(el('a', { href: '#/settings', onClick: () => uMenu.classList.remove('open') }, 'Settings'));
+      uMenu.appendChild(el('button', { onClick: signOut }, 'Sign out'));
+      refreshHealth();
+    }
+  };
+  ub.appendChild(avatar);
+  ub.appendChild(uname);
+  ub.appendChild(uMenu);
+
+  // Mobile hamburger
+  const toggle = $('#nav-toggle');
+  if (toggle) toggle.onclick = (e) => { e.stopPropagation(); $('#topnav').classList.toggle('open'); };
+
+  document.addEventListener('click', () => {
+    menu && menu.classList.remove('open');
+    uMenu.classList.remove('open');
+  });
+}
+
 async function boot() {
   // Gate on auth first so an unauthenticated load shows ONLY the login screen.
   if (!(await ensureAuthed())) return;
+  await renderTopbar();
   connectWS();
 
   // Live-refresh current screen on relevant events (debounced + form-aware)
@@ -1550,17 +1677,10 @@ async function boot() {
     debouncedRender();
   });
 
-  // Notification bell → toggle a dropdown of pending questions
-  const notifBtn = $('#notif-btn');
-  if (notifBtn) notifBtn.onclick = (e) => { e.stopPropagation(); toggleNotifDropdown(); };
-  document.addEventListener('click', () => closeNotifDropdown());
-
-  await refreshHealth();
   await refreshNotifications();
-  setInterval(refreshHealth, 15000);
   setInterval(refreshNotifications, 30000);
 
-  if (!location.hash) location.hash = '#/agents';
+  if (!location.hash) location.hash = '#/projects';
   await render();
 }
 
