@@ -12,8 +12,11 @@ PROJECT
   Context:
 {project_context_indented}
 
-PROJECT DOCUMENTS
+PROJECT DOCUMENTS (index — title, when to consult, sections)
 {project_documents_block}
+
+REQUESTED DOCUMENTS (full text of the ones you asked to read)
+{requested_documents_block}
 
 AVAILABLE SECRETS (names only — fetch a value at run time via the secret
 endpoint and declare it in the task; NEVER inline secret values)

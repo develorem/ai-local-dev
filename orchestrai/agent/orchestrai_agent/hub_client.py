@@ -113,6 +113,16 @@ class HubClient:
         r.raise_for_status()
         return r.json()
 
+    async def get_document(self, document_id: str) -> dict:
+        """Full text of one project document, fetched on demand when the agent
+        decides (from the index) it needs to read it."""
+        r = await self._client.get(
+            f"{self.base}/api/documents/{document_id}",
+            headers=self._headers(),
+        )
+        r.raise_for_status()
+        return r.json()
+
     async def get_clone_info(self, repo_id: str) -> dict:
         """{url, default_branch, token} for cloning a project's repo. Requires
         this agent to hold an in-progress task in the repo's project."""

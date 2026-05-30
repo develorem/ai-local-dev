@@ -11,7 +11,9 @@ GOAL
   Title:        {goal_title}
   Description:  {goal_description}
 
-PROJECT DOCUMENTS (extra context for this project — read before planning)
+PROJECT DOCUMENTS (index — title, purpose, sections). Use it to see what
+reference material exists and route tasks accordingly; the implementer fetches
+the full text of a document when a task needs it.
 {project_documents_block}
 
 AVAILABLE SECRETS (names only — if a task needs one, say so in its description;

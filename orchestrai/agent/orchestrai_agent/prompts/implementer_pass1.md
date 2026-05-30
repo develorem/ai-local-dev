@@ -8,7 +8,10 @@ PROJECT
   Context:
 {project_context_indented}
 
-PROJECT DOCUMENTS
+PROJECT DOCUMENTS (index — each entry is a title, when to consult it, and its
+sections). This is a seek index, NOT the content. If a document is relevant to
+this task, list its EXACT title in `documents_to_read` and you'll get its full
+text in the next pass. Don't request docs you don't need.
 {project_documents_block}
 
 AVAILABLE SECRETS (names only — fetch a value at run time via the secret
@@ -44,6 +47,7 @@ Constraints:
 OUTPUT — exactly ONE fenced ```json block:
 {{
   "files_to_read": ["<path/relative/to/workspace>"],
+  "documents_to_read": ["<exact title of a relevant project document, or omit>"],
   "files_to_write_or_modify": [
     {{"path": "<path>", "intent": "<short description of what will change>"}}
   ],

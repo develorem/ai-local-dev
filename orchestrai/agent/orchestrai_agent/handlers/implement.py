@@ -17,7 +17,9 @@ from typing import Any, Optional
 from orchestrai_agent.config import config
 from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
-from orchestrai_agent.prompt_context import documents_block, secrets_block
+from orchestrai_agent.prompt_context import (
+    documents_index_block, requested_documents_block, secrets_block,
+)
 from orchestrai_agent.prompt_metrics import emit as emit_prompt_metrics
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
@@ -256,7 +258,7 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
     rs = _build_retry_block(task, prior_files=prior_files)
     project_description = project.get("description_md") or "(no description)"
     project_context = _indent(project.get("context_md") or "(no context)")
-    docs_block = documents_block(documents, budget=2000)
+    docs_block = documents_index_block(documents)
     secrets_blk = secrets_block(secret_names)
     task_description = task.get("description_md") or "(no description)"
     criteria = _format_criteria(task.get("acceptance_criteria") or [])
@@ -302,7 +304,8 @@ def _render_pass1(project: dict, task: dict, workspace_tree: str,
 
 def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict,
                   documents: list | None = None,
-                  secret_names: list | None = None) -> tuple[str, dict]:
+                  secret_names: list | None = None,
+                  requested_docs: dict | None = None) -> tuple[str, dict]:
     files_summary = ", ".join(
         f"{f['path']} ({f.get('intent','')})"
         for f in (pass1.get("files_to_write_or_modify") or [])
@@ -316,7 +319,8 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict,
         files_block = "(no files to read — fresh workspace or no reads requested)"
     project_description = project.get("description_md") or "(no description)"
     project_context = _indent(project.get("context_md") or "(no context)")
-    docs_block = documents_block(documents, budget=2000)
+    docs_block = documents_index_block(documents)
+    requested_docs_block = requested_documents_block(requested_docs)
     secrets_blk = secrets_block(secret_names)
     task_description = task.get("description_md") or "(no description)"
     criteria = _format_criteria(task.get("acceptance_criteria") or [])
@@ -330,6 +334,7 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict,
         project_description=project_description,
         project_context_indented=project_context,
         project_documents_block=docs_block,
+        requested_documents_block=requested_docs_block,
         available_secrets_block=secrets_blk,
         task_title=task.get("title", "(no title)"),
         task_description=task_description,
@@ -348,6 +353,7 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict,
         "project_description": len(project_description),
         "project_context": len(project_context),
         "project_documents_block": len(docs_block),
+        "requested_documents_block": len(requested_docs_block),
         "available_secrets_block": len(secrets_blk),
         "task_description": len(task_description),
         "acceptance_criteria": len(criteria),
@@ -361,6 +367,38 @@ def _render_pass2(project: dict, task: dict, pass1: dict, files_contents: dict,
         "static_template": len(_PASS2_TPL),
     }
     return prompt, sections
+
+
+_MAX_REQUESTED_DOCS = 6
+_REQUESTED_DOC_CHARS = 8000
+
+
+async def _fetch_requested_documents(hub, task_id: str, doc_index: list | None,
+                                     requested: list | None) -> dict:
+    """Resolve pass-1's `documents_to_read` (titles) against the envelope index
+    and fetch the full text of each. Returns {title: content}. Manual docs are
+    fetched from the Hub; repo docs are read from the workspace (increment 4).
+    Bounded in count and per-doc size to protect the pass-2 budget.
+    """
+    requested = [r for r in (requested or []) if isinstance(r, str) and r.strip()]
+    if not requested:
+        return {}
+    by_title = {(d.get("title") or "").strip().lower(): d for d in (doc_index or [])}
+    out: dict[str, str] = {}
+    for req in requested[:_MAX_REQUESTED_DOCS]:
+        d = by_title.get(req.strip().lower())
+        if not d:
+            continue
+        try:
+            full = await hub.get_document(d["id"])
+            body = (full.get("content_md") or "")[:_REQUESTED_DOC_CHARS]
+            out[d.get("title") or req] = body
+        except Exception as e:
+            log.warning("document fetch failed for %r: %s", req, e)
+    if out:
+        await hub.task_event(task_id, "implementer.documents_fetched",
+                             {"titles": list(out.keys())})
+    return out
 
 
 async def _ollama_generate(ollama: OllamaClient, prompt: str, num_predict: int) -> tuple[Optional[dict], dict]:
@@ -509,8 +547,14 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
             "chars_saved": saved,
         })
 
+    # 3b. Fetch the full text of any project documents pass-1 asked to read.
+    # The agent saw only the index (title/purpose/headings); now it pulls the
+    # bodies it decided it needs — by title, matched against the envelope index.
+    requested_docs = await _fetch_requested_documents(
+        hub, task_id, envelope.get("documents"), pass1.get("documents_to_read"))
+
     # 4. Pass 2: generate the diff
-    pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents, documents=envelope.get('documents'), secret_names=envelope.get('secret_names'))
+    pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents, documents=envelope.get('documents'), secret_names=envelope.get('secret_names'), requested_docs=requested_docs)
     await emit_prompt_metrics(hub, task_id, "implementer_pass2", pass2_prompt,
                               pass2_sections, kind_hint=_kind_hint(task))
     await hub.task_event(task_id, "llm.call.started", {

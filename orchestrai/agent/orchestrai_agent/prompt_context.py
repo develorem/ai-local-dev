@@ -1,33 +1,52 @@
-"""Render project documents + available secret NAMES for agent prompts.
+"""Render the project-document INDEX + available secret NAMES for agent prompts.
+
+The index is a SEEK structure, not a content dump: each entry is a title, a
+one-line purpose (when to consult), and the doc's section headings. The agent
+decides which docs it actually needs and asks for them by title in pass 1; the
+full text of only those is fetched and shown in pass 2. This keeps the standing
+context tiny (16K budget) while the authoritative content is one fetch away.
 
 SECURITY: secret VALUES are never placed in prompts — only names/descriptions,
 so the model knows what it may request at runtime (via the audited
 /secrets/{name}/value endpoint, after declaring the name in the task's
-payload.secrets_needed). Document content IS injected (it's project context),
-but bounded so it can't blow the 16K context budget.
+payload.secrets_needed).
 """
 
+_MAX_INDEX_HEADINGS = 12
 
-def documents_block(documents: list | None, budget: int = 2500) -> str:
-    docs = [d for d in (documents or [])
-            if (d.get("content_md") or "").strip() or d.get("title")]
+
+def documents_index_block(documents: list | None) -> str:
+    """The document index: title + purpose + section headings. No bodies."""
+    docs = documents or []
     if not docs:
         return "(no project documents)"
-    out: list[str] = []
-    used = 0
+    lines: list[str] = []
     for d in docs:
         title = d.get("title") or "(untitled)"
-        body = (d.get("content_md") or "").strip()
-        header = f"## {title}\n"
-        remaining = budget - used - len(header)
-        if remaining <= 0:
-            out.append(f"## {title}\n(omitted — context budget reached)")
-            break
-        if len(body) > remaining:
-            body = body[:remaining].rstrip() + "\n…(truncated)"
-        out.append(header + body)
-        used += len(header) + len(body)
+        purpose = (d.get("purpose") or "").strip()
+        headings = d.get("headings") or []
+        tag = " [repo]" if d.get("source") == "repo" else ""
+        lines.append(f'  - "{title}"{tag} — ' + (purpose or "(indexing…)"))
+        if headings:
+            lines.append("    sections: " + ", ".join(headings[:_MAX_INDEX_HEADINGS]))
+    return "\n".join(lines)
+
+
+def requested_documents_block(contents: dict | None) -> str:
+    """Full text of the docs the agent asked to read (keyed by title)."""
+    contents = contents or {}
+    if not contents:
+        return "(none requested)"
+    out: list[str] = []
+    for title, body in contents.items():
+        out.append(f"## {title}\n{(body or '').strip()}")
     return "\n\n".join(out)
+
+
+# Back-compat: a couple of call sites still import documents_block. It now just
+# renders the index (no bodies) so nothing injects full content unasked-for.
+def documents_block(documents: list | None, budget: int = 2500) -> str:
+    return documents_index_block(documents)
 
 
 def secrets_block(secret_names: list | None) -> str:

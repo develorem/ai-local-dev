@@ -219,11 +219,16 @@ def claim(agent_id: str,
     ).fetchone()
     project_repo = dict(prepo) if prepo else None
 
-    # Project context for the agent's prompts: document content, and the NAMES
-    # (not values) of secrets available to the project (global + project-scoped).
-    documents = [dict(r) for r in conn.execute(
-        "SELECT title, content_md FROM project_documents WHERE project_id = ? "
-        "ORDER BY updated_at DESC", (row["project_id"],))]
+    # Project context for the agent's prompts: the document INDEX (title +
+    # purpose + headings, NOT bodies — the agent fetches full text on demand),
+    # and the NAMES (not values) of secrets available (global + project-scoped).
+    documents = []
+    for r in conn.execute(
+        "SELECT id, title, purpose, headings, source FROM project_documents "
+        "WHERE project_id = ? ORDER BY updated_at DESC", (row["project_id"],)):
+        d = dict(r)
+        d["headings"] = json_loads(d["headings"], [])
+        documents.append(d)
     secret_names = [dict(r) for r in conn.execute(
         "SELECT name, description, scope FROM secrets "
         "WHERE scope = 'global' OR scope = ? ORDER BY name",
