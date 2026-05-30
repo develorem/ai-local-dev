@@ -639,23 +639,69 @@ route('/projects/:project_id', async ({ project_id }) => {
       for (const r of repos) host.appendChild(el('div', { style: 'margin:3px 0;' },
         el('span', {}, `${r.name}: ${r.url}`),
         r.auth_secret_name ? el('span', { class: 'muted', style: 'font-size:11px;' }, ` · auth: ${r.auth_secret_name}`) : null,
-        el('button', { class: 'secondary', style: 'margin-left:8px;', onClick: async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); toast('Removed', 'success'); refreshRepos(); } }, 'Remove')));
+        r.start_command ? el('span', { class: 'muted', style: 'font-size:11px;' }, ` · start: ${r.start_command}`) : null,
+        el('button', { class: 'secondary', style: 'margin-left:8px;', onClick: async () => {
+            const sc = prompt('Start command for the app preview ($PORT is the assigned port):', r.start_command || '');
+            if (sc === null) return;
+            await api(`/repos/${r.id}`, { method: 'PATCH', body: { start_command: sc.trim() } });
+            toast('Saved', 'success'); refreshRepos(); } }, 'Set start cmd'),
+        el('button', { class: 'secondary', style: 'margin-left:4px;', onClick: async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); toast('Removed', 'success'); refreshRepos(); } }, 'Remove')));
       const f = el('form', { style: 'margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;',
         onSubmit: async (e) => { e.preventDefault(); const fm = e.target;
           try { await api(`/projects/${project_id}/repos`, { method: 'POST', body: {
               name: fm.rname.value.trim() || 'origin', url: fm.url.value.trim(),
               default_branch: fm.branch.value.trim() || 'main',
-              auth_secret_name: fm.secret.value.trim() || null } });
+              auth_secret_name: fm.secret.value.trim() || null,
+              start_command: fm.start_command.value.trim() || null } });
             toast('Repository connected', 'success'); fm.reset(); refreshRepos(); }
           catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } },
         el('input', { name: 'rname', placeholder: 'name (origin)', style: 'width:110px;' }),
         el('input', { name: 'url', placeholder: 'https://github.com/you/repo.git', required: true, style: 'flex:1;min-width:220px;' }),
         el('input', { name: 'branch', placeholder: 'main', style: 'width:80px;' }),
         el('input', { name: 'secret', placeholder: 'auth secret name (optional)', style: 'width:170px;' }),
+        el('input', { name: 'start_command', placeholder: 'start command e.g. uvicorn main:app --host 0.0.0.0 --port $PORT', style: 'flex:1;min-width:260px;' }),
         el('button', { type: 'submit' }, 'Connect'));
       host.appendChild(f);
     };
     await refreshRepos();
+  }
+
+  // ---- App preview (run the app on an agent port, click to test) ------
+  {
+    const host = el('div', {});
+    content.appendChild(el('div', { class: 'card' },
+      el('h3', {}, 'App preview ',
+        el('button', { onClick: async () => {
+            try { await api(`/projects/${project_id}/previews/launch`, { method: 'POST' });
+              toast('Launching… (the agent will start it shortly)', 'success'); refreshPreviews(); }
+            catch (err) { toast('Failed: ' + err.message, 'error', 6000); } } }, 'Launch app')),
+      host));
+    var refreshPreviews = async () => {
+      host.innerHTML = '';
+      let items = [];
+      try { items = (await api(`/projects/${project_id}/previews`)).items || []; } catch (e) {}
+      const live = items.filter(p => p.status === 'starting' || p.status === 'running');
+      if (!live.length) {
+        host.appendChild(el('div', { class: 'muted' },
+          'No app running. Set a start command on the repo above, then Launch.'));
+      }
+      for (const p of live) {
+        // Build the link from THIS browser's host so it works locally or over LAN.
+        const url = `${location.protocol}//${location.hostname}:${p.port}`;
+        host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:4px 0;' },
+          pill(p.status),
+          p.status === 'running'
+            ? el('a', { href: url, target: '_blank' }, `Open app ↗ (${url})`)
+            : el('span', { class: 'muted' }, `starting on port ${p.port}…`),
+          el('button', { class: 'secondary', onClick: async () => {
+              await api(`/previews/${p.id}/stop`, { method: 'POST' });
+              toast('Stopping', 'success'); refreshPreviews(); } }, 'Stop')));
+      }
+      const failed = items.find(p => p.status === 'failed');
+      if (failed && failed.detail) host.appendChild(el('div', { class: 'muted', style: 'font-size:11px;margin-top:4px;' },
+        `last failure: ${failed.detail.slice(0, 200)}`));
+    };
+    await refreshPreviews();
   }
 
   // ---- Secrets (inherited globals + project-scoped) -------------------

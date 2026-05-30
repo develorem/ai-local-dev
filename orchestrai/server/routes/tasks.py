@@ -440,6 +440,23 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
              detail={"applied": applied})
         new_status = "done"
 
+    elif row["type"] == "preview" and outcome == "success":
+        # The agent reports the app's health (running/failed/stopped); reflect it
+        # on the preview_servers row so the UI link is accurate.
+        pid_ = result.get("preview_id")
+        pstatus = result.get("preview_status") or "running"
+        if pid_ and pstatus in ("starting", "running", "stopped", "failed"):
+            conn.execute(
+                "UPDATE preview_servers SET status = ?, last_seen_at = ?, "
+                "agent_id = ?, detail = ? WHERE id = ?",
+                (pstatus, now, row["assigned_agent_id"],
+                 (result.get("detail") or "")[:500], pid_))
+            emit(conn, "preview.status", "project", row["project_id"],
+                 project_id=row["project_id"], task_id=task_id, actor="system",
+                 detail={"preview_id": pid_, "status": pstatus,
+                         "port": result.get("port")})
+        new_status = "done"
+
     elif row["type"] in ("plan", "revise") and outcome == "success":
         # Plan tasks: persist a plan row + open a plan_approval question
         plan_md = result.get("plan_md", "")

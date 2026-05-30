@@ -9,6 +9,7 @@ from orchestrai_agent.handlers.revise import handle_revise
 from orchestrai_agent.handlers.pr_review import handle_review_pr
 from orchestrai_agent.handlers.ci_fix import handle_ci_failure
 from orchestrai_agent.handlers.reindex import handle_reindex
+from orchestrai_agent.handlers.preview import handle_preview
 
 HANDLERS = {
     "plan": handle_plan,
@@ -19,6 +20,7 @@ HANDLERS = {
     "review_pr": handle_review_pr,
     "respond_to_ci_failure": handle_ci_failure,
     "reindex": handle_reindex,
+    "preview": handle_preview,
 }
 
 
