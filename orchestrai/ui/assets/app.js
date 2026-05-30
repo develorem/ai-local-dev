@@ -589,9 +589,23 @@ route('/projects/:project_id', async ({ project_id }) => {
       let docs = [];
       try { docs = (await api(`/documents?project_id=${project_id}`)).items || []; } catch (e) {}
       if (!docs.length) host.appendChild(el('div', { class: 'muted' }, 'No documents yet — add context describing this project.'));
-      for (const d of docs) host.appendChild(el('div', { style: 'display:flex;gap:8px;align-items:center;margin:3px 0;' },
-        el('a', { href: '#', onClick: (e) => { e.preventDefault(); openDocForm(project_id, d, refreshDocs); } }, d.title),
-        el('button', { class: 'secondary', onClick: async () => { await api(`/documents/${d.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshDocs(); } }, 'Delete')));
+      for (const d of docs) {
+        const isRepo = d.source === 'repo';
+        const titleNode = isRepo
+          ? el('span', {}, d.repo_path || d.title,
+              el('span', { class: 'muted', style: 'margin-left:6px;font-size:11px;' }, '[repo]'))
+          : el('a', { href: '#', onClick: (e) => { e.preventDefault(); openDocForm(project_id, d, refreshDocs); } }, d.title);
+        const row = el('div', { style: 'margin:6px 0;' },
+          el('div', { style: 'display:flex;gap:8px;align-items:center;' },
+            titleNode,
+            isRepo ? null
+              : el('button', { class: 'secondary', onClick: async () => { await api(`/documents/${d.id}`, { method: 'DELETE' }); toast('Deleted', 'success'); refreshDocs(); } }, 'Delete')),
+          el('div', { class: 'muted', style: 'font-size:12px;' }, d.purpose || '(indexing…)'),
+          (d.headings && d.headings.length)
+            ? el('div', { class: 'muted', style: 'font-size:11px;' }, 'sections: ' + d.headings.join(', '))
+            : null);
+        host.appendChild(row);
+      }
     };
     await refreshDocs();
   }
