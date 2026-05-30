@@ -59,14 +59,13 @@ continue. The running stack is rebuilt with
   D1 will document structure + add landing as a separate app.
 
 ## Open follow-ups / risks
-- SECURITY (important): tenant isolation is enforced on projects + agents
-  (list/create/get) but NOT yet on sub-resources — tasks, outcomes, documents,
-  secrets, repos, previews, scheduled, questions. A logged-in user who knows an
-  ID could read/modify another org's data via those routes. The UI only surfaces
-  a user's own projects, so it's not exposed in normal use, but the API needs a
-  per-route project-access check. HARDEN before real multi-tenant exposure.
-- SECURITY: global secrets are still global (not org-scoped) — they'd be visible
-  across tenants. Scope secrets to org.
-- WS /api/events rejects connections without a token (currently 403 for the UI);
-  needs to accept the session cookie. Fix in Phase C.
+- RESOLVED: tenant isolation now enforced on ALL project sub-resources via
+  server/services/access.py (tasks, outcomes, documents, repos, previews,
+  scheduled, questions, plans, discussions, events, project-agent grants, agent
+  detail/config/delete). Secrets are org-scoped (migration 013) incl. the agent
+  fetch-value path. Validated cross-tenant (404s). Worker bypasses (trusted).
+- RESOLVED: WS /api/events accepts the session cookie (Phase C).
+- Minor remaining: grant_project_agent doesn't verify the granted specific agent
+  belongs to the project's org (low risk — kind-grants are the norm). MCP
+  external-agent dispatch scoping should get a dedicated cross-tenant test.
 - Leased agents: only the gating stub exists; real provisioning is a separate session.
