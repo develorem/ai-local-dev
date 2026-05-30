@@ -107,7 +107,7 @@ class HubClient:
 
     async def get_goal(self, goal_id: str) -> dict:
         r = await self._client.get(
-            f"{self.base}/api/goals/{goal_id}",
+            f"{self.base}/api/outcomes/{goal_id}",
             headers=self._headers(),
         )
         r.raise_for_status()

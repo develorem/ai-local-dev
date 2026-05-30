@@ -82,7 +82,7 @@ def list_projects(status: str | None = None, limit: int = 50, conn=Depends(db_de
             SELECT
               SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS goals_active,
               SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS goals_done
-            FROM goals WHERE project_id = ?
+            FROM outcomes WHERE project_id = ?
             """,
             (p["id"],),
         ).fetchone()
@@ -130,8 +130,8 @@ def get_project(project_id: str, conn=Depends(db_dep)):
         (project_id,),
     ).fetchall()]
 
-    goals = [dict(r) for r in conn.execute(
-        "SELECT id, title, status, priority, created_at FROM goals "
+    outcomes = [dict(r) for r in conn.execute(
+        "SELECT id, title, status, priority, created_at FROM outcomes "
         "WHERE project_id = ? ORDER BY created_at DESC LIMIT 50",
         (project_id,),
     ).fetchall()]
@@ -148,7 +148,7 @@ def get_project(project_id: str, conn=Depends(db_dep)):
         (project_id,),
     ).fetchall()]
 
-    return {"project": project, "repos": repos, "goals": goals, "tasks": tasks}
+    return {"project": project, "repos": repos, "outcomes": outcomes, "tasks": tasks}
 
 
 @router.patch("/{project_id}", response_model=Project)

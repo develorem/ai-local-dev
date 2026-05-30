@@ -42,7 +42,7 @@ def list_questions(status: str = "pending", limit: int = 100, conn=Depends(db_de
                g.title AS goal_title
         FROM questions q
         LEFT JOIN tasks t ON t.id = q.task_id
-        LEFT JOIN goals g ON g.id = t.goal_id
+        LEFT JOIN outcomes g ON g.id = t.goal_id
         WHERE q.status = ?
         ORDER BY q.created_at ASC LIMIT ?
         """,
@@ -219,7 +219,7 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
             (now, answer_md, plan_row["id"]),
         )
         conn.execute(
-            "UPDATE goals SET status='active', updated_at=? WHERE id = ?",
+            "UPDATE outcomes SET status='active', updated_at=? WHERE id = ?",
             (now, goal_id),
         )
         conn.execute(
@@ -252,7 +252,7 @@ def _handle_plan_approval(conn, task_row, answer_value: str | None, answer_md: s
             (plan_row["id"],),
         )
         conn.execute(
-            "UPDATE goals SET status='rejected', updated_at=? WHERE id = ?",
+            "UPDATE outcomes SET status='rejected', updated_at=? WHERE id = ?",
             (now, goal_id),
         )
         conn.execute(

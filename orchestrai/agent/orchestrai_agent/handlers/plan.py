@@ -183,7 +183,7 @@ async def handle_plan(hub: HubClient, ollama: OllamaClient, envelope: dict) -> N
     if goal_id:
         try:
             data = await hub.get_goal(goal_id)
-            goal = data["goal"]
+            goal = data["outcome"]
         except Exception as e:
             await hub.task_event(task_id, "task.warning",
                                  {"message": f"could not fetch goal: {e}"})

@@ -72,7 +72,7 @@ def create_discussion(body: dict, conn=Depends(db_dep)):
         if tr:
             project_id = tr["project_id"]
     if not project_id and goal_id:
-        gr = conn.execute("SELECT project_id FROM goals WHERE id = ?", (goal_id,)).fetchone()
+        gr = conn.execute("SELECT project_id FROM outcomes WHERE id = ?", (goal_id,)).fetchone()
         if gr:
             project_id = gr["project_id"]
 

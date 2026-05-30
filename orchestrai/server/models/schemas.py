@@ -75,31 +75,31 @@ class Repo(_Base):
     created_at: str
 
 
-# ---------- Goals -----------------------------------------------------------
+# ---------- Outcomes (formerly 'goals') -------------------------------------
 
-GoalStatus = Literal["submitted", "planning", "active", "done", "rejected", "abandoned"]
+OutcomeStatus = Literal["submitted", "planning", "active", "done", "rejected", "abandoned"]
 Priority = Literal["low", "normal", "high", "critical"]
 
 
-class GoalCreate(_Base):
+class OutcomeCreate(_Base):
     project_id: str
     title: str
     description_md: str
     priority: Priority = "normal"
 
 
-class GoalUpdate(_Base):
+class OutcomeUpdate(_Base):
     title: Optional[str] = None
     description_md: Optional[str] = None
     priority: Optional[Priority] = None
 
 
-class Goal(_Base):
+class Outcome(_Base):
     id: str
     project_id: str
     title: str
     description_md: str
-    status: GoalStatus
+    status: OutcomeStatus
     priority: Priority
     created_at: str
     updated_at: str

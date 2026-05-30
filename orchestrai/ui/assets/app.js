@@ -457,7 +457,7 @@ async function refreshProjects() {
             el('a', { href: `#/projects/${p.id}` }, el('strong', {}, p.name)),
             ' · ', el('span', { class: 'muted' }, p.slug)),
           el('div', { class: 'muted' },
-            `${s.goals_active || 0} active goals · ${s.tasks_in_progress || 0} running · ` +
+            `${s.goals_active || 0} active outcomes · ${s.tasks_in_progress || 0} running · ` +
             `${s.tasks_ready || 0} ready · ${s.open_questions || 0} need answer`))
       )));
   }
@@ -600,19 +600,19 @@ route('/projects/:project_id', async ({ project_id }) => {
   };
   await renderGrants();
 
-  // ---- Goals (the most important entry point — keep at top) -----------
-  content.appendChild(el('h2', {}, `Goals (${data.goals.length})`,
+  // ---- Outcomes (the most important entry point — keep at top) -----------
+  content.appendChild(el('h2', {}, `Outcomes (${data.outcomes.length})`,
     el('button', { style: 'margin-left:12px;',
-      onClick: () => openGoalForm(project_id) }, '+ Add Goal')));
-  content.appendChild(el('div', { id: 'goal-form-host' }));
-  if (data.goals.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No goals yet. Click + Add Goal to give the agent something to work on.'));
+      onClick: () => openOutcomeForm(project_id) }, '+ Add Outcome')));
+  content.appendChild(el('div', { id: 'outcome-form-host' }));
+  if (data.outcomes.length === 0) {
+    content.appendChild(el('p', { class: 'muted' }, 'No goals yet. Click + Add Outcome to give the agent something to work on.'));
   } else {
     const tbl = el('table', {},
       el('thead', {}, el('tr', {},
         el('th', {}, 'Title'), el('th', {}, 'Status'),
         el('th', {}, 'Priority'), el('th', {}, 'Created'))),
-      el('tbody', {}, ...data.goals.map(g => el('tr', {},
+      el('tbody', {}, ...data.outcomes.map(g => el('tr', {},
         el('td', {}, g.title), el('td', {}, pill(g.status)),
         el('td', {}, g.priority),
         el('td', { class: 'muted' }, fmtTime(g.created_at))))));
@@ -644,7 +644,7 @@ route('/projects/:project_id', async ({ project_id }) => {
       onClick: () => openTaskForm(project_id) }, '+ Add Task (manual)')));
   content.appendChild(el('div', { id: 'task-form-host' }));
   if (data.tasks.length === 0) {
-    content.appendChild(el('p', { class: 'muted' }, 'No tasks yet. Tasks usually appear automatically after you add a goal and approve its plan.'));
+    content.appendChild(el('p', { class: 'muted' }, 'No tasks yet. Tasks usually appear automatically after you add an outcome and approve its plan.'));
   } else {
     const tbl = el('table', {},
       el('thead', {}, el('tr', {},
@@ -662,12 +662,12 @@ route('/projects/:project_id', async ({ project_id }) => {
   }
 });
 
-function openGoalForm(project_id) {
-  const host = $('#goal-form-host');
+function openOutcomeForm(project_id) {
+  const host = $('#outcome-form-host');
   if (!host) return;
   host.innerHTML = '';
   const card = el('div', { class: 'card', style: 'max-width:680px;' },
-    el('h3', {}, 'New Goal'),
+    el('h3', {}, 'New Outcome'),
     el('p', { class: 'muted', style: 'margin:0 0 8px 0;' },
       'A planner task is auto-created. Approve the resulting plan to instantiate the implementation tasks.'),
     el('form', { class: 'form-grid', onSubmit: async (e) => {
@@ -676,13 +676,13 @@ function openGoalForm(project_id) {
       const btn = f.querySelector('button[type=submit]');
       btn.disabled = true; btn.textContent = 'Submitting…';
       try {
-        const result = await api('/goals', { method: 'POST', body: {
+        const result = await api('/outcomes', { method: 'POST', body: {
           project_id,
           title: f.title.value.trim(),
           description_md: f.description_md.value,
           priority: f.priority.value,
         }});
-        toast(`Goal submitted — planner task queued`, 'success');
+        toast(`Outcome submitted — planner task queued`, 'success');
         host.innerHTML = '';
         render();
       } catch (err) {
@@ -765,7 +765,7 @@ function openTaskForm(project_id) {
   const card = el('div', { class: 'card', style: 'max-width:680px;' },
     el('h3', {}, 'New Task (manual)'),
     el('p', { class: 'muted', style: 'margin:0 0 8px 0;' },
-      'Most tasks are created automatically by the planner. Use this for ad-hoc work outside a planned goal — e.g. a one-off implement, review, or discuss task.'),
+      'Most tasks are created automatically by the planner. Use this for ad-hoc work outside a planned outcome — e.g. a one-off implement, review, or discuss task.'),
     el('form', { class: 'form-grid', onSubmit: async (e) => {
       e.preventDefault();
       const f = e.target;
@@ -829,7 +829,7 @@ route('/tasks/:task_id', async ({ task_id }) => {
     ['Status', pill(t.status)],
     ['Priority', t.priority],
     ['Project', t.project_id],
-    ['Goal', t.goal_id || '—'],
+    ['Outcome', t.goal_id || '—'],
     ['Repo', t.repo_id || '—'],
     ['Branch', t.branch_name || '—'],
     ['Agent', data.agent ? el('a', { href: `#/agents/${data.agent.id}` }, data.agent.name) : '—'],
@@ -1274,7 +1274,7 @@ function isFormActive() {
     return true;
   }
   // Any inline form host with content => form is open even if not focused
-  const hosts = $$('#goal-form-host, #repo-form-host, #task-form-host, #inline-form-host');
+  const hosts = $$('#outcome-form-host, #repo-form-host, #task-form-host, #inline-form-host');
   return hosts.some(h => h.children.length > 0);
 }
 

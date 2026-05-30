@@ -453,7 +453,7 @@ def post_task_result(task_id: str, body: dict, conn=Depends(db_dep)):
             # Move the goal to 'planning' if not already
             if row["goal_id"]:
                 conn.execute(
-                    "UPDATE goals SET status='planning', updated_at=? "
+                    "UPDATE outcomes SET status='planning', updated_at=? "
                     "WHERE id = ? AND status IN ('submitted','planning','active')",
                     (now, row["goal_id"]),
                 )
@@ -611,7 +611,7 @@ def _maybe_complete_goal(conn, goal_id: str) -> None:
     """If every task in the goal is in a terminal state and at least one is done,
     move the goal to `done`."""
     g = conn.execute(
-        "SELECT id, project_id, status FROM goals WHERE id = ?",
+        "SELECT id, project_id, status FROM outcomes WHERE id = ?",
         (goal_id,),
     ).fetchone()
     if not g or g["status"] in ("done", "abandoned", "rejected"):
@@ -633,7 +633,7 @@ def _maybe_complete_goal(conn, goal_id: str) -> None:
         return  # don't auto-complete if any task failed
     if int(counts["terminal"] or 0) == int(counts["total"]) and int(counts["done_n"] or 0) > 0:
         conn.execute(
-            "UPDATE goals SET status='done', updated_at=? WHERE id = ?",
+            "UPDATE outcomes SET status='done', updated_at=? WHERE id = ?",
             (utcnow_iso(), goal_id),
         )
         emit(conn, "goal.status_changed", "goal", goal_id,
