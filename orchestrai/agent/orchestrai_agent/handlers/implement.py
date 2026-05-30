@@ -374,10 +374,11 @@ _REQUESTED_DOC_CHARS = 8000
 
 
 async def _fetch_requested_documents(hub, task_id: str, doc_index: list | None,
-                                     requested: list | None) -> dict:
+                                     requested: list | None, workspace=None) -> dict:
     """Resolve pass-1's `documents_to_read` (titles) against the envelope index
     and fetch the full text of each. Returns {title: content}. Manual docs are
-    fetched from the Hub; repo docs are read from the workspace (increment 4).
+    fetched from the Hub; repo docs are read straight from the checked-out
+    workspace (the repo is the source of truth — never copied into the Hub).
     Bounded in count and per-doc size to protect the pass-2 budget.
     """
     requested = [r for r in (requested or []) if isinstance(r, str) and r.strip()]
@@ -389,10 +390,17 @@ async def _fetch_requested_documents(hub, task_id: str, doc_index: list | None,
         d = by_title.get(req.strip().lower())
         if not d:
             continue
+        title = d.get("title") or req
         try:
-            full = await hub.get_document(d["id"])
-            body = (full.get("content_md") or "")[:_REQUESTED_DOC_CHARS]
-            out[d.get("title") or req] = body
+            if d.get("source") == "repo" and d.get("repo_path") and workspace is not None:
+                contents, _missing = read_files(
+                    workspace, [d["repo_path"]], max_chars=_REQUESTED_DOC_CHARS)
+                body = contents.get(d["repo_path"])
+                if body is not None:
+                    out[title] = body
+            else:
+                full = await hub.get_document(d["id"])
+                out[title] = (full.get("content_md") or "")[:_REQUESTED_DOC_CHARS]
         except Exception as e:
             log.warning("document fetch failed for %r: %s", req, e)
     if out:
@@ -551,7 +559,8 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
     # The agent saw only the index (title/purpose/headings); now it pulls the
     # bodies it decided it needs — by title, matched against the envelope index.
     requested_docs = await _fetch_requested_documents(
-        hub, task_id, envelope.get("documents"), pass1.get("documents_to_read"))
+        hub, task_id, envelope.get("documents"), pass1.get("documents_to_read"),
+        workspace=workspace)
 
     # 4. Pass 2: generate the diff
     pass2_prompt, pass2_sections = _render_pass2(project, task, pass1, contents, documents=envelope.get('documents'), secret_names=envelope.get('secret_names'), requested_docs=requested_docs)

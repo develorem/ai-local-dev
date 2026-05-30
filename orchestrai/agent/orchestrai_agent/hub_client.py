@@ -132,3 +132,15 @@ class HubClient:
         )
         r.raise_for_status()
         return r.json()
+
+    async def reconcile_repo_docs(self, project_id: str, repo_id: str,
+                                  docs: list) -> dict:
+        """Report the repo's reference-doc manifest so the Hub can reconcile the
+        document index (add/update/remove by path, enqueue reindex on change)."""
+        r = await self._client.post(
+            f"{self.base}/api/projects/{project_id}/repo-docs/reconcile",
+            json={"repo_id": repo_id, "docs": docs},
+            headers=self._headers(),
+        )
+        r.raise_for_status()
+        return r.json()

@@ -1,5 +1,6 @@
 """Project repos CRUD + the agent clone-info endpoint."""
 
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -7,10 +8,29 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import Repo, RepoCreate, RepoUpdate
+from server.services import doc_index
 from server.services.crypto import decrypt
 from server.util import new_id, utcnow_iso
 
 router = APIRouter(tags=["repos"])
+
+
+def _agent_with_task_in_project(authorization: Optional[str], project_id: str, conn):
+    """Authorise an agent lease token that holds an in-progress task in this
+    project (same contract as clone-info). Returns the agent row."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, detail={"error": {"code": "missing_token"}})
+    tok = authorization.split(None, 1)[1].strip()
+    agent = conn.execute("SELECT * FROM agents WHERE lease_token = ?", (tok,)).fetchone()
+    if not agent:
+        raise HTTPException(401, detail={"error": {"code": "invalid_lease"}})
+    ctid = agent["current_task_id"]
+    task = conn.execute("SELECT project_id, status FROM tasks WHERE id = ?",
+                        (ctid,)).fetchone() if ctid else None
+    if not task or task["status"] != "in_progress" or task["project_id"] != project_id:
+        raise HTTPException(403, detail={"error": {"code": "no_matching_task",
+                            "message": "need an in-progress task in this project"}})
+    return agent
 
 
 def _row_to_repo(row) -> dict:
@@ -154,6 +174,77 @@ def clone_info(repo_id: str, authorization: Optional[str] = Header(default=None)
                  "issued" if token_val else "denied", "git_clone"))
             conn.commit()
     return {"url": repo["url"], "default_branch": repo["default_branch"], "token": token_val}
+
+
+@router.post("/projects/{project_id}/repo-docs/reconcile")
+def reconcile_repo_docs(project_id: str, body: dict,
+                        authorization: Optional[str] = Header(default=None),
+                        conn=Depends(db_dep)):
+    """Agent-only. Reconcile the document index against the repo's reference
+    docs. The worker sends a manifest ({repo_path, title, headings, excerpt})
+    scanned from its checked-out workspace; we upsert repo-sourced
+    project_documents by (project, repo, path), drop ones that disappeared
+    upstream, and enqueue a reindex when content changed. Repo doc CONTENT is
+    not stored here (only an excerpt for the purpose line) — the full body is
+    read from the workspace on demand."""
+    _agent_with_task_in_project(authorization, project_id, conn)
+    repo_id = (body or {}).get("repo_id")
+    if not repo_id:
+        raise HTTPException(400, detail={"error": {"code": "repo_id_required"}})
+    docs = (body or {}).get("docs") or []
+    now = utcnow_iso()
+
+    seen: set[str] = set()
+    indexed = 0
+    for d in docs:
+        if not isinstance(d, dict):
+            continue
+        rp = (d.get("repo_path") or "").strip()
+        if not rp:
+            continue
+        seen.add(rp)
+        title = (d.get("title") or rp).strip()[:200]
+        headings = json.dumps(d.get("headings") or [])
+        excerpt = (d.get("excerpt") or "")[:4000]
+        existing = conn.execute(
+            "SELECT id, title, content_md, headings FROM project_documents "
+            "WHERE project_id = ? AND repo_id = ? AND repo_path = ? AND source = 'repo'",
+            (project_id, repo_id, rp)).fetchone()
+        if existing:
+            # Only write (and thus risk re-indexing) when something changed.
+            if (existing["title"] == title and existing["content_md"] == excerpt
+                    and existing["headings"] == headings):
+                continue
+            conn.execute(
+                "UPDATE project_documents SET title = ?, headings = ?, "
+                "content_md = ?, updated_at = ? WHERE id = ?",
+                (title, headings, excerpt, now, existing["id"]))
+            indexed += 1
+        else:
+            conn.execute(
+                "INSERT INTO project_documents (id, project_id, title, content_md, "
+                "source, repo_id, repo_path, headings, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 'repo', ?, ?, ?, ?, ?)",
+                (new_id(), project_id, title, excerpt, repo_id, rp, headings, now, now))
+            indexed += 1
+
+    # Drop repo docs that no longer exist upstream.
+    removed = 0
+    for r in conn.execute(
+        "SELECT id, repo_path FROM project_documents "
+        "WHERE project_id = ? AND repo_id = ? AND source = 'repo'",
+        (project_id, repo_id)).fetchall():
+        if r["repo_path"] not in seen:
+            conn.execute("DELETE FROM project_documents WHERE id = ?", (r["id"],))
+            removed += 1
+
+    doc_index.enqueue_reindex_if_needed(conn, project_id)
+    if indexed or removed:
+        emit(conn, "repo_docs.reconciled", "project", project_id,
+             project_id=project_id, actor="system",
+             detail={"repo_id": repo_id, "indexed": indexed, "removed": removed})
+    conn.commit()
+    return {"indexed": indexed, "removed": removed, "seen": len(seen)}
 
 
 @router.delete("/repos/{repo_id}")

@@ -224,7 +224,7 @@ def claim(agent_id: str,
     # and the NAMES (not values) of secrets available (global + project-scoped).
     documents = []
     for r in conn.execute(
-        "SELECT id, title, purpose, headings, source FROM project_documents "
+        "SELECT id, title, purpose, headings, source, repo_path FROM project_documents "
         "WHERE project_id = ? ORDER BY updated_at DESC", (row["project_id"],)):
         d = dict(r)
         d["headings"] = json_loads(d["headings"], [])

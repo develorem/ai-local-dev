@@ -12,6 +12,7 @@ is a clone of that repo with the relevant branch checked out.
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -107,7 +108,18 @@ async def prepare_workspace(hub, envelope: dict) -> Path:
             log.warning("clone-info fetch failed (%s) — using url without auth", e)
             clone = {"url": prepo.get("url"), "default_branch": prepo.get("default_branch"),
                      "token": None}
-    return await ensure_workspace(slug, clone=clone)
+    ws = await ensure_workspace(slug, clone=clone)
+
+    # Index reference docs that live in the repo (./docs, ./ai-docs, README, …).
+    # Best-effort and hash-reconciled on the Hub, so re-scanning a reused or
+    # freshly-pulled workspace is cheap and idempotent. Never blocks the task.
+    if prepo and prepo.get("id") and project.get("id"):
+        try:
+            manifest = scan_doc_files(ws)
+            await hub.reconcile_repo_docs(project["id"], prepo["id"], manifest)
+        except Exception as e:
+            log.warning("repo-doc scan/reconcile failed: %s", e)
+    return ws
 
 
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv",
@@ -238,6 +250,79 @@ def list_tree_relevant(workspace: Path, task: Optional[dict] = None,
     if remaining > 0:
         out_lines.append(f"... ({remaining} more files; ask in pass-1 if you need any)")
     return "\n".join(out_lines)
+
+
+# ---- Repo document discovery (index phase 2) -------------------------------
+# Common places teams keep agent/human reference docs. Bounded by an allowlist
+# (NOT the whole repo) + extension + size, so vendored/generated docs don't
+# flood the index.
+_DOC_DIRS = ("docs", "ai-docs", "context", ".ai", "doc")
+_DOC_ROOT_STEMS = {"readme", "contributing", "agents", "claude", "architecture"}
+_DOC_EXTS = (".md", ".mdx", ".rst", ".txt")
+_DOC_MAX_BYTES = 64 * 1024
+_DOC_MAX_FILES = 100
+_DOC_EXCERPT_CHARS = 2000
+
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$", re.M)
+
+
+def _doc_headings(text: str) -> list[str]:
+    out: list[str] = []
+    for m in _MD_HEADING_RE.finditer(text or ""):
+        t = m.group(2).strip()
+        if t:
+            out.append(t[:120])
+        if len(out) >= 40:
+            break
+    return out
+
+
+def _doc_title(text: str, rel_path: str) -> str:
+    """First markdown H1, else the file's basename."""
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s.startswith("# "):
+            return s[2:].strip()[:200]
+    return rel_path.rsplit("/", 1)[-1]
+
+
+def _is_doc_path(rel: str) -> bool:
+    lower = rel.lower()
+    if not lower.endswith(_DOC_EXTS):
+        return False
+    top = lower.split("/", 1)[0]
+    if top in _DOC_DIRS:
+        return True
+    if "/" not in lower:  # root-level file
+        stem = lower.rsplit(".", 1)[0]
+        return stem in _DOC_ROOT_STEMS
+    return False
+
+
+def scan_doc_files(workspace: Path) -> list[dict]:
+    """Find reference docs under the allowlisted paths and return an index
+    manifest: {repo_path, title, headings, excerpt}. Reads the file (capped) to
+    derive title/headings/excerpt; the Hub decides what changed via the hash."""
+    manifest: list[dict] = []
+    for rel in _walk_paths(workspace):
+        if len(manifest) >= _DOC_MAX_FILES:
+            break
+        if not _is_doc_path(rel):
+            continue
+        full = workspace / rel
+        try:
+            if full.stat().st_size > _DOC_MAX_BYTES:
+                continue
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        manifest.append({
+            "repo_path": rel,
+            "title": _doc_title(text, rel),
+            "headings": _doc_headings(text),
+            "excerpt": text[:_DOC_EXCERPT_CHARS],
+        })
+    return manifest
 
 
 async def write_files(workspace: Path, files: list[dict]) -> tuple[bool, str, list[str]]:
