@@ -16,7 +16,7 @@ from orchestrai_agent.ollama_client import OllamaClient
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
 from orchestrai_agent.workspace import (
-    apply_diff, commit_all, ensure_workspace, list_tree, write_files,
+    apply_diff, commit_all, ensure_workspace, prepare_workspace, list_tree, write_files,
 )
 
 log = logging.getLogger("orchestrai-agent.ci_fix")
@@ -37,7 +37,7 @@ async def handle_ci_failure(hub: HubClient, ollama: OllamaClient, envelope: dict
     payload = task.get("payload") or {}
     project_slug = project.get("slug") or "default"
 
-    workspace = await ensure_workspace(project_slug)
+    workspace = await prepare_workspace(hub, envelope)
     tree = list_tree(workspace)
 
     log_tail = payload.get("log_tail") or "(no log provided)"

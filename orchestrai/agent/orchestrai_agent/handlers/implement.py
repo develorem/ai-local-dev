@@ -22,7 +22,7 @@ from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
 from orchestrai_agent.file_outline import maybe_outline
 from orchestrai_agent.workspace import (
-    apply_diff, commit_all, ensure_workspace, list_tree_relevant, read_files, write_files,
+    apply_diff, commit_all, ensure_workspace, prepare_workspace, list_tree_relevant, read_files, write_files,
 )
 
 log = logging.getLogger("orchestrai-agent.implement")
@@ -388,7 +388,7 @@ async def handle_implement(hub: HubClient, ollama: OllamaClient, envelope: dict)
 
     # 1. Workspace
     try:
-        workspace = await ensure_workspace(project_slug)
+        workspace = await prepare_workspace(hub, envelope)
     except Exception as e:
         await hub.task_result(task_id, {
             "outcome": "fix_needed",

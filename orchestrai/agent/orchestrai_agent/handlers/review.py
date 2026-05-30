@@ -17,7 +17,7 @@ from orchestrai_agent.hub_client import HubClient
 from orchestrai_agent.ollama_client import OllamaClient
 from orchestrai_agent.response_parser import extract_json
 from orchestrai_agent.subprocess_util import run as run_subproc
-from orchestrai_agent.workspace import ensure_workspace
+from orchestrai_agent.workspace import ensure_workspace, prepare_workspace
 
 log = logging.getLogger("orchestrai-agent.review")
 
@@ -160,7 +160,7 @@ async def handle_review(hub: HubClient, ollama: OllamaClient, envelope: dict) ->
     project_slug = project.get("slug") or "default"
     task_id = task["id"]
 
-    workspace = await ensure_workspace(project_slug)
+    workspace = await prepare_workspace(hub, envelope)
 
     # 1. Deterministic structured checks
     criteria = task.get("acceptance_criteria") or []

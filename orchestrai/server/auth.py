@@ -48,16 +48,17 @@ def bearer_token(request: Request) -> Optional[str]:
 
 def resolve_principal(token: Optional[str]) -> Optional[dict]:
     """Map a token to a principal, or None. {kind: 'operator'} or
-    {kind: 'agent', id, name}."""
+    {kind: 'agent', id, name, agent_kind}."""
     if not token:
         return None
     if config.OPERATOR_TOKEN and token == config.OPERATOR_TOKEN:
         return {"kind": "operator"}
     with get_db() as conn:
-        r = conn.execute("SELECT id, name FROM agents WHERE lease_token = ?",
+        r = conn.execute("SELECT id, name, kind FROM agents WHERE lease_token = ?",
                          (token,)).fetchone()
     if r:
-        return {"kind": "agent", "id": r["id"], "name": r["name"]}
+        return {"kind": "agent", "id": r["id"], "name": r["name"],
+                "agent_kind": (r["kind"] if "kind" in r.keys() else "worker")}
     return None
 
 
@@ -77,15 +78,9 @@ def _is_open(path: str) -> bool:
     return False
 
 
-def _is_agent_self_endpoint(path: str) -> bool:
-    parts = [p for p in path.split("/") if p]  # ['api','agents','<id>','<verb>']
-    return (len(parts) == 4 and parts[0] == "api" and parts[1] == "agents"
-            and parts[3] in _AGENT_SELF_VERBS)
-
-
-def _unauthorized(detail: str) -> JSONResponse:
-    return JSONResponse({"error": {"code": "unauthorized", "message": detail}},
-                        status_code=401)
+def _resp(code: int, detail: str) -> JSONResponse:
+    return JSONResponse({"error": {"code": "unauthorized" if code == 401 else "forbidden",
+                                   "message": detail}}, status_code=code)
 
 
 async def auth_middleware(request: Request, call_next):
@@ -94,14 +89,14 @@ async def auth_middleware(request: Request, call_next):
 
     principal = resolve_principal(bearer_token(request))
     if principal is None:
-        return _unauthorized("Missing or invalid token.")
+        return _resp(401, "Missing or invalid token.")
 
-    if _is_agent_self_endpoint(request.url.path):
-        # The agent's own pull endpoints — a valid agent OR operator token gets
-        # past the gate; the route re-checks the token matches the agent id.
-        pass
-    elif principal["kind"] != "operator":
-        return _unauthorized("Operator token required for this endpoint.")
-
-    request.state.principal = principal
-    return await call_next(request)
+    # operator: full admin API. worker: the trusted internal executor — it drives
+    # the whole task lifecycle over /api (claim/result/events/notes, reads of
+    # outcomes/plans/tasks, secret values, clone-info), so it gets the full API
+    # too. external agents do NOT touch /api — they use the /mcp endpoint.
+    if principal["kind"] == "operator" or principal.get("agent_kind") == "worker":
+        request.state.principal = principal
+        return await call_next(request)
+    return _resp(403, "This token is not allowed on the admin API. "
+                      "External agents connect via the /mcp endpoint.")

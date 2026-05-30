@@ -1,10 +1,13 @@
-"""Project repos CRUD."""
+"""Project repos CRUD + the agent clone-info endpoint."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from server.db.connection import db_dep
 from server.events import emit
 from server.models import Repo, RepoCreate, RepoUpdate
+from server.services.crypto import decrypt
 from server.util import new_id, utcnow_iso
 
 router = APIRouter(tags=["repos"])
@@ -109,6 +112,48 @@ def update_repo(repo_id: str, body: RepoUpdate, conn=Depends(db_dep)):
     conn.commit()
     row = conn.execute("SELECT * FROM project_repos WHERE id = ?", (repo_id,)).fetchone()
     return _row_to_repo(row)
+
+
+@router.get("/repos/{repo_id}/clone-info")
+def clone_info(repo_id: str, authorization: Optional[str] = Header(default=None),
+               conn=Depends(db_dep)):
+    """Agent-only. Returns what the worker needs to clone this repo into its
+    workspace: url, default_branch, and the decrypted auth token (if the repo
+    has an auth_secret_name and its scope allows this project). Authorised by a
+    valid lease token whose agent holds an in-progress task in the repo's
+    project; token issuance is audited like any other secret access."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, detail={"error": {"code": "missing_token"}})
+    tok = authorization.split(None, 1)[1].strip()
+    agent = conn.execute("SELECT * FROM agents WHERE lease_token = ?", (tok,)).fetchone()
+    if not agent:
+        raise HTTPException(401, detail={"error": {"code": "invalid_lease"}})
+    repo = conn.execute("SELECT * FROM project_repos WHERE id = ?", (repo_id,)).fetchone()
+    if not repo:
+        raise HTTPException(404)
+    ctid = agent["current_task_id"]
+    task = conn.execute("SELECT project_id, status FROM tasks WHERE id = ?",
+                        (ctid,)).fetchone() if ctid else None
+    if not task or task["status"] != "in_progress" or task["project_id"] != repo["project_id"]:
+        raise HTTPException(403, detail={"error": {"code": "no_matching_task",
+                            "message": "need an in-progress task in this repo's project"}})
+    token_val = None
+    sname = repo["auth_secret_name"] if "auth_secret_name" in repo.keys() else None
+    if sname:
+        srow = conn.execute("SELECT ciphertext, scope FROM secrets WHERE name = ?",
+                            (sname,)).fetchone()
+        if srow and (srow["scope"] == "global" or srow["scope"] == f"project:{repo['project_id']}"):
+            try:
+                token_val = decrypt(srow["ciphertext"])
+            except Exception:
+                token_val = None
+            conn.execute(
+                "INSERT INTO secret_accesses (id, secret_name, agent_id, task_id, ts, result, reason) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (new_id(), sname, agent["id"], ctid, utcnow_iso(),
+                 "issued" if token_val else "denied", "git_clone"))
+            conn.commit()
+    return {"url": repo["url"], "default_branch": repo["default_branch"], "token": token_val}
 
 
 @router.delete("/repos/{repo_id}")

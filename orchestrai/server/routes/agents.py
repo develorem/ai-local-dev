@@ -208,6 +208,16 @@ def claim(agent_id: str,
         ).fetchone()
         repo = dict(repo_row) if repo_row else None
 
+    # The project's primary repo to clone the workspace from, regardless of
+    # whether this task is bound to a specific repo. None => agent uses local git.
+    prepo = conn.execute(
+        "SELECT id, name, url, default_branch FROM project_repos "
+        "WHERE project_id = ? AND url IS NOT NULL AND url != '' "
+        "ORDER BY created_at LIMIT 1",
+        (row["project_id"],),
+    ).fetchone()
+    project_repo = dict(prepo) if prepo else None
+
     emit(conn, "task.claimed", "task", row["id"],
          project_id=row["project_id"], outcome_id=row["outcome_id"],
          task_id=row["id"], agent_id=agent_id, actor=f"agent:{agent_id}",
@@ -218,6 +228,7 @@ def claim(agent_id: str,
         "task": task,
         "project": project_dict,
         "repo": repo,
+        "project_repo": project_repo,
         "branch_name": row["branch_name"],
         "lease_expires_at": row["lease_expires_at"],
     }

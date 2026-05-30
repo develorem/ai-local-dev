@@ -112,3 +112,13 @@ class HubClient:
         )
         r.raise_for_status()
         return r.json()
+
+    async def get_clone_info(self, repo_id: str) -> dict:
+        """{url, default_branch, token} for cloning a project's repo. Requires
+        this agent to hold an in-progress task in the repo's project."""
+        r = await self._client.get(
+            f"{self.base}/api/repos/{repo_id}/clone-info",
+            headers=self._headers(),
+        )
+        r.raise_for_status()
+        return r.json()

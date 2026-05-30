@@ -27,20 +27,87 @@ def _slug_dir(project_slug: str) -> Path:
     return WORKSPACES_ROOT / safe
 
 
-async def ensure_workspace(project_slug: str) -> Path:
-    """Make sure /workspace/<slug>/ exists and is a git repo. Returns the path."""
+async def _git_identity(path: Path) -> None:
+    await run(["git", "config", "user.email", "agent@orchestrai.local"],
+              cwd=str(path), timeout_sec=10)
+    await run(["git", "config", "user.name", "OrchestrAi Agent"],
+              cwd=str(path), timeout_sec=10)
+
+
+def _url_with_token(url: str, token: Optional[str]) -> str:
+    """Embed a token into an https URL for non-interactive clone/fetch. Never
+    logged (see _try_clone — the subprocess util doesn't log argv)."""
+    if token and url.startswith("https://"):
+        return "https://x-access-token:" + token + "@" + url[len("https://"):]
+    return url
+
+
+def _redact(text: Optional[str], token: Optional[str]) -> str:
+    text = text or ""
+    if token:
+        text = text.replace(token, "***")
+    return text[:300]
+
+
+async def _try_clone(path: Path, clone: dict) -> bool:
+    url = clone.get("url")
+    token = clone.get("token")
+    branch = clone.get("default_branch") or "main"
+    if not url:
+        return False
+    res = await run(["git", "clone", "--quiet", _url_with_token(url, token), "."],
+                    cwd=str(path), timeout_sec=300)
+    if res.exit_code != 0:
+        log.warning("git clone failed (exit %s): %s", res.exit_code, _redact(res.stderr, token))
+        return False
+    # Best-effort checkout of the configured default branch.
+    await run(["git", "checkout", "-q", branch], cwd=str(path), timeout_sec=30)
+    await _git_identity(path)
+    log.info("cloned %s into %s", url, path)
+    return True
+
+
+async def ensure_workspace(project_slug: str, clone: Optional[dict] = None) -> Path:
+    """Make sure /workspace/<slug>/ exists and is a git repo. Returns the path.
+
+    If `clone` ({url, default_branch, token}) is given and the workspace is
+    fresh, clone that repo; on any clone failure fall back to a local-only git
+    repo. Once set up (cloned or init'd), later calls reuse it.
+    """
     WORKSPACES_ROOT.mkdir(parents=True, exist_ok=True)
     path = _slug_dir(project_slug)
     path.mkdir(parents=True, exist_ok=True)
 
-    if not (path / ".git").exists():
-        log.info("init git repo at %s", path)
-        await run(["git", "init", "-q", "-b", "main"], cwd=str(path), timeout_sec=20)
-        await run(["git", "config", "user.email", "agent@orchestrai.local"],
-                  cwd=str(path), timeout_sec=10)
-        await run(["git", "config", "user.name", "OrchestrAi Agent"],
-                  cwd=str(path), timeout_sec=10)
+    if (path / ".git").exists():
+        return path  # already set up
+
+    if clone and clone.get("url") and await _try_clone(path, clone):
+        return path
+
+    log.info("init local git repo at %s", path)
+    await run(["git", "init", "-q", "-b", "main"], cwd=str(path), timeout_sec=20)
+    await _git_identity(path)
     return path
+
+
+async def prepare_workspace(hub, envelope: dict) -> Path:
+    """Set up the workspace for a claimed task: clone the project's configured
+    repo (fetching url + token from the hub) if there is one, else local git."""
+    project = envelope.get("project") or {}
+    slug = project.get("slug") or "default"
+    prepo = envelope.get("project_repo")
+    clone = None
+    if prepo and prepo.get("url"):
+        try:
+            info = await hub.get_clone_info(prepo["id"])
+            clone = {"url": info.get("url") or prepo.get("url"),
+                     "default_branch": info.get("default_branch") or prepo.get("default_branch"),
+                     "token": info.get("token")}
+        except Exception as e:
+            log.warning("clone-info fetch failed (%s) — using url without auth", e)
+            clone = {"url": prepo.get("url"), "default_branch": prepo.get("default_branch"),
+                     "token": None}
+    return await ensure_workspace(slug, clone=clone)
 
 
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv",
