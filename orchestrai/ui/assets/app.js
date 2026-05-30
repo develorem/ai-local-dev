@@ -37,6 +37,22 @@ function signOut() {
   location.reload();
 }
 
+// Probe a cheap authed endpoint before booting the app. If the hub requires a
+// token and ours is missing/invalid, show the login screen and DON'T let the
+// rest of the app render (a route render would clobber the login form, and its
+// own 401 is suppressed once _loginShown is set — leaving a bare "unauthorized").
+async function ensureAuthed() {
+  try {
+    const res = await fetch(API + '/questions?status=pending&limit=1', {
+      headers: AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {},
+    });
+    if (res.status === 401) { showLogin(); return false; }
+    return true;
+  } catch (e) {
+    return true;  // hub unreachable — let the app load and show it as down
+  }
+}
+
 // ---- Toast notifications -------------------------------------------------
 function toast(msg, kind = 'info', ttlMs = 3500) {
   let host = document.getElementById('toast-host');
@@ -233,6 +249,7 @@ function setBreadcrumb(parts) {
 }
 
 async function render() {
+  if (_loginShown) return;  // login screen is up — don't clobber it
   const m = matchRoute(location.hash);
   if (!m) {
     location.hash = '#/agents';
@@ -1474,6 +1491,8 @@ function debouncedRender() {
 }
 
 async function boot() {
+  // Gate on auth first so an unauthenticated load shows ONLY the login screen.
+  if (!(await ensureAuthed())) return;
   connectWS();
 
   // Live-refresh current screen on relevant events (debounced + form-aware)
