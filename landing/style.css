@@ -1,0 +1,48 @@
+/* OrchestrAi landing — minimal placeholder styling (branding TBD). */
+:root {
+  --bg: #0e1116; --surface: #161b22; --border: #2a2f3a;
+  --text: #d4d4d4; --muted: #8b95a5; --accent: #4f9eff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.5; }
+a { color: var(--accent); text-decoration: none; }
+
+.nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px;
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: rgba(14,17,22,0.9); backdrop-filter: blur(6px); }
+.brand { font-weight: 700; font-size: 18px; color: var(--text); }
+.brand .mark { color: var(--accent); }
+.nav nav { display: flex; align-items: center; gap: 18px; }
+
+.btn { background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 8px; font-size: 14px; display: inline-block; }
+.btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn.big { padding: 12px 22px; font-size: 16px; }
+
+.hero { max-width: 820px; margin: 0 auto; text-align: center; padding: 80px 24px 48px; }
+.hero h1 { font-size: 44px; line-height: 1.1; margin: 0 0 16px; }
+.hero .sub { font-size: 18px; color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.tiny { font-size: 12px; margin-top: 20px; }
+.muted { color: var(--muted); }
+
+.features { max-width: 1000px; margin: 0 auto; padding: 32px 24px; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.feature { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+.feature h3 { margin: 0 0 8px; }
+.feature p { margin: 0; color: var(--muted); }
+
+.pricing { max-width: 1000px; margin: 0 auto; padding: 48px 24px 24px; text-align: center; }
+.pricing h2 { font-size: 28px; margin-bottom: 24px; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.plan { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: left; }
+.plan.featured { border-color: var(--accent); }
+.plan h3 { margin: 0 0 6px; }
+.plan .price { font-size: 32px; font-weight: 700; margin-bottom: 12px; }
+.plan .price span { font-size: 14px; color: var(--muted); font-weight: 400; }
+.plan ul { list-style: none; padding: 0; margin: 0 0 18px; }
+.plan li { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 14px; }
+
+.foot { max-width: 1000px; margin: 0 auto; padding: 32px 24px; display: flex; justify-content: space-between;
+  color: var(--muted); border-top: 1px solid var(--border); font-size: 14px; }
+
+@media (max-width: 600px) { .hero h1 { font-size: 32px; } }
