@@ -13,6 +13,7 @@ No loopback, no duplicated business logic.
 
 import contextvars
 import json
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import orchestrai_mcp
@@ -55,6 +56,16 @@ def _task_project(conn, task_id: str) -> str:
     return r["project_id"]
 
 
+# The route handlers expect a Request to resolve the caller's principal (added
+# for tenant scoping). MCP calls them in-process, so we hand them a synthetic
+# request carrying an operator principal — the route-level checks bypass, and
+# MCP's own per-project grant enforcement (_require_access) stays the real gate.
+def _mcp_request():
+    return SimpleNamespace(
+        state=SimpleNamespace(principal={"kind": "operator", "is_superadmin": True}),
+        query_params={}, headers={})
+
+
 def _hub_dispatch(method: str, path: str, body: dict | None = None):
     """Route an orchestrai_mcp `_api(method, path, body)` call to the in-process
     handler. Mirrors the small slice of the REST surface the tools use, and
@@ -63,21 +74,22 @@ def _hub_dispatch(method: str, path: str, body: dict | None = None):
     p, q = u.path, parse_qs(u.query)
     parts = [seg for seg in p.split("/") if seg]  # e.g. ['tasks', '<id>', 'status']
     agent = current_agent.get()
+    req = _mcp_request()
     with get_db() as conn:
         # ---- reads: open ----
         if method == "GET" and p == "/projects":
-            return P.list_projects(status=None, limit=500, conn=conn)
+            return P.list_projects(req, status=None, limit=500, conn=conn)
         if method == "GET" and p == "/tasks":
-            return T.list_tasks(project_id=q.get("project_id", [None])[0],
+            return T.list_tasks(req, project_id=q.get("project_id", [None])[0],
                                 limit=500, conn=conn)
         if method == "GET" and len(parts) == 2 and parts[0] == "tasks":
-            return T.get_task(parts[1], conn=conn)
+            return T.get_task(parts[1], req, conn=conn)
         # ---- create a project (use_project): registered agent only; auto-grant it ----
         if method == "POST" and p == "/projects":
             if agent is None:
                 raise RuntimeError("Connect with a registered agent's token to create "
                                    "a project (register one in the OrchestrAi UI).")
-            proj = P.create_project(ProjectCreate(**body), conn=conn)
+            proj = P.create_project(ProjectCreate(**body), req, conn=conn)
             conn.execute("INSERT OR IGNORE INTO project_agents (project_id, grantee_type, "
                          "grantee) VALUES (?, 'agent', ?)", (proj["id"], agent["id"]))
             conn.commit()
@@ -85,16 +97,16 @@ def _hub_dispatch(method: str, path: str, body: dict | None = None):
         # ---- writes: require a grant on the target project ----
         if method == "POST" and p == "/tasks":
             _require_access(conn, agent, (body or {}).get("project_id"))
-            return T.create_task(TaskCreate(**body), conn=conn)
+            return T.create_task(TaskCreate(**body), req, conn=conn)
         if method == "POST" and len(parts) == 3 and parts[0] == "tasks" and parts[2] == "status":
             _require_access(conn, agent, _task_project(conn, parts[1]))
-            return T.set_task_status(parts[1], TaskStatusUpdate(**body), conn=conn)
+            return T.set_task_status(parts[1], TaskStatusUpdate(**body), req, conn=conn)
         if method == "POST" and len(parts) == 3 and parts[0] == "tasks" and parts[2] == "notes":
             _require_access(conn, agent, _task_project(conn, parts[1]))
-            return T.append_note(parts[1], body or {}, conn=conn)
+            return T.append_note(parts[1], body or {}, req, conn=conn)
         if method == "PATCH" and len(parts) == 2 and parts[0] == "projects":
             _require_access(conn, agent, parts[1])
-            return P.update_project(parts[1], ProjectUpdate(**body), conn=conn)
+            return P.update_project(parts[1], ProjectUpdate(**body), req, conn=conn)
     raise RuntimeError(f"MCP backend: unmapped call {method} {p}")
 
 
