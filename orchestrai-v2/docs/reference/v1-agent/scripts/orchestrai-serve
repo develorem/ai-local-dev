@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""Spawn a long-running server detached, then wait for its port to be reachable.
+
+Designed to be the verification command for tasks that have to stand up a
+demo / human-feedback server on one of the agent's mapped HTTP ports. A
+plain `uvicorn ...` would block until killed by the agent's subprocess
+timeout; this wrapper:
+
+  1. Forks the command into its own process group, fully detached
+     (setsid, stdin from /dev/null, stdout+stderr to /tmp/orchestrai-serve/<port>.log).
+  2. Polls a TCP connect to 127.0.0.1:<port> until it succeeds or times out.
+  3. Exits 0 on reachable, 1 otherwise. The detached child KEEPS RUNNING
+     either way — the user on the host can hit http://localhost:<port>.
+
+Usage:
+  orchestrai-serve --port 6800 -- uvicorn main:app --host 0.0.0.0 --port 6800
+  orchestrai-serve --port 6800 --wait-sec 20 -- node server.js
+  orchestrai-serve --stop 6800    # kill the previously-launched server on that port
+"""
+
+import argparse
+import os
+import signal
+import socket
+import sys
+import time
+from pathlib import Path
+
+STATE_DIR = Path("/tmp/orchestrai-serve")
+
+
+def _port_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        try:
+            s.connect(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
+def _stop(port: int) -> int:
+    pid_file = STATE_DIR / f"{port}.pid"
+    if not pid_file.exists():
+        print(f"orchestrai-serve: no pid file for port {port}", file=sys.stderr)
+        return 1
+    try:
+        pid = int(pid_file.read_text().strip())
+    except Exception as e:
+        print(f"orchestrai-serve: bad pid file: {e}", file=sys.stderr)
+        return 1
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except Exception as e:
+        print(f"orchestrai-serve: kill failed: {e}", file=sys.stderr)
+    try:
+        pid_file.unlink()
+    except OSError:
+        pass
+    return 0
+
+
+def _start(port: int, wait_sec: float, argv: list[str]) -> int:
+    if not argv:
+        print("orchestrai-serve: missing command after `--`", file=sys.stderr)
+        return 2
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = STATE_DIR / f"{port}.log"
+    pid_path = STATE_DIR / f"{port}.pid"
+
+    # If something is already serving the port, treat as success — task can be
+    # re-run safely without spawning duplicates.
+    if _port_open(port):
+        print(f"orchestrai-serve: port {port} already reachable; skipping spawn")
+        return 0
+
+    # Double-fork to fully detach. The grandchild becomes session leader, has
+    # no controlling terminal, and survives the agent's subprocess exit.
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid > 0:
+        os.close(w)
+        # Parent: read grandchild PID from pipe, write pidfile, return.
+        try:
+            data = os.read(r, 64).decode().strip()
+            os.close(r)
+            grandchild_pid = int(data) if data.isdigit() else 0
+        except Exception:
+            grandchild_pid = 0
+        if grandchild_pid:
+            pid_path.write_text(str(grandchild_pid))
+        # Poll the port.
+        deadline = time.monotonic() + wait_sec
+        while time.monotonic() < deadline:
+            if _port_open(port):
+                print(f"orchestrai-serve: {port} reachable (pid={grandchild_pid}, log={log_path})")
+                return 0
+            time.sleep(0.25)
+        # Timed out — but leave the process running. The next task attempt can
+        # diagnose via the log file rather than starting from scratch.
+        print(
+            f"orchestrai-serve: timeout — port {port} did NOT respond within "
+            f"{wait_sec}s. Server pid={grandchild_pid} (still running). "
+            f"Recent log:\n",
+            file=sys.stderr,
+        )
+        try:
+            tail = log_path.read_text(encoding="utf-8", errors="replace")[-2000:]
+            sys.stderr.write(tail + "\n")
+        except OSError:
+            pass
+        return 1
+
+    # First child: become session leader and fork again.
+    os.close(r)
+    os.setsid()
+    pid2 = os.fork()
+    if pid2 > 0:
+        # Tell the original parent the grandchild's pid and exit.
+        os.write(w, str(pid2).encode())
+        os.close(w)
+        os._exit(0)
+
+    # Grandchild: replace fds and exec.
+    # Truncate the log on start — otherwise a previous run's output stays in
+    # the file and badly misleads the fix loop's diagnosis (LLM reads stale
+    # "Serving HTTP on 0.0.0.0..." and concludes the current run is fine).
+    os.close(w)
+    devnull = os.open(os.devnull, os.O_RDONLY)
+    log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+    os.dup2(devnull, 0)
+    os.dup2(log_fd, 1)
+    os.dup2(log_fd, 2)
+    os.close(devnull)
+    os.close(log_fd)
+    try:
+        os.execvp(argv[0], argv)
+    except FileNotFoundError:
+        os._exit(127)
+    except Exception:
+        os._exit(126)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="orchestrai-serve", add_help=True)
+    ap.add_argument("--port", type=int, required=False,
+                    help="TCP port to wait on (also passed through to your command if it reads it)")
+    ap.add_argument("--wait-sec", type=float, default=15.0,
+                    help="seconds to wait for the port to come up (default 15)")
+    ap.add_argument("--stop", type=int, default=None,
+                    help="stop a previously-started server on this port and exit")
+    # Anything after `--` is the command + args.
+    if "--" in sys.argv:
+        idx = sys.argv.index("--")
+        cli_args = sys.argv[1:idx]
+        cmd = sys.argv[idx + 1:]
+    else:
+        cli_args = sys.argv[1:]
+        cmd = []
+    args = ap.parse_args(cli_args)
+
+    if args.stop is not None:
+        return _stop(args.stop)
+
+    if args.port is None:
+        print("orchestrai-serve: --port is required when starting a server", file=sys.stderr)
+        return 2
+
+    return _start(args.port, args.wait_sec, cmd)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
